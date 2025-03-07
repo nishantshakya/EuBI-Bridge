@@ -55,7 +55,7 @@ class VoxelMeta:
     def _read_meta(self):
         if self.omemeta is not None:
             return self.omemeta
-        import bioformats, javabridge, contextlib
+        import bioformats, javabridge
         javabridge.start_vm(class_path=bioformats.JARS)
         from ome_types import OME
         if self.path.endswith('ome') or self.path.endswith('xml'):

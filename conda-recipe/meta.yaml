@@ -1,0 +1,48 @@
+package:
+  name: eubi-bridge
+  version: 0.0.1
+
+source:
+  path: ..
+
+build:
+  number: 0
+  noarch: python
+  script:
+    - "{{ PYTHON }} -m pip install . -vv"
+
+requirements:
+  build:
+    - python >=3.9
+    - setuptools
+    - pip
+  host:
+    - python >=3.9
+    - pip
+    - setuptools
+    - wheel
+  run:
+    - conda-forge::python>=3.9
+    - conda-forge::pip
+    - conda-forge::numpy
+    - conda-forge::dask<=2024.7.0
+    - conda-forge::distributed<=2024.7.0
+    - conda-forge::zarr<=2.18.3
+    - conda-forge::matplotlib
+    - conda-forge::dask-jobqueue
+    - conda-forge::s3fs
+    - conda-forge::fire
+    - conda-forge::rechunker
+    - conda-forge::watchdog
+    - conda-forge::zstandard
+    - conda-forge::xmlschema
+    - conda-forge::aicsimageio=4.10.*
+    - conda-forge::bioformats_jar
+    - conda-forge::readlif
+    - conda-forge::czifile
+    - conda-forge::pydantic=1.9.*
+    - conda-forge::tifffile=2024.8.*
+
+
+
+

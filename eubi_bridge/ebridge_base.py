@@ -37,19 +37,33 @@ class VoxelMeta:
         self._units = None
         assert self.ndim == 5, Exception(f"Metadata must define 5D image. Try defining the voxel metadata manually.")
 
+    # def _read_meta(self):
+    #     if self.path.endswith('ome') or self.path.endswith('xml'):
+    #         from aicsimageio.metadata.utils import OME
+    #         self.omemeta = OME().from_xml(self.path)
+    #     else:
+    #         from aicsimageio.readers.bioformats_reader import BioformatsReader
+    #         img = AICSImage(
+    #             self.path,
+    #             reader = BioformatsReader
+    #         )
+    #         if self.series is not None:
+    #             img.set_scene(self.series)
+    #         self.omemeta = img.ome_metadata
+    #     return self.omemeta
+
     def _read_meta(self):
+        if self.omemeta is not None:
+            return self.omemeta
+        import bioformats, javabridge, contextlib
+        javabridge.start_vm(class_path=bioformats.JARS)
+        from ome_types import OME
         if self.path.endswith('ome') or self.path.endswith('xml'):
-            from aicsimageio.metadata.utils import OME
             self.omemeta = OME().from_xml(self.path)
         else:
-            from aicsimageio.readers.bioformats_reader import BioformatsReader
-            img = AICSImage(
-                self.path,
-                reader = BioformatsReader
-            )
-            if self.series is not None:
-                img.set_scene(self.series)
-            self.omemeta = img.ome_metadata
+            xml = bioformats.get_omexml_metadata(self.path)
+            self.omemeta = OME().from_xml(xml)
+        javabridge.kill_vm()
         return self.omemeta
 
     @property

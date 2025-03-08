@@ -83,7 +83,7 @@ def write_chunk_with_zarrpy(chunk: np.ndarray, zarr_array: zarr.Array, block_inf
     zarr_array[tuple(slice(*b) for b in block_info[0]["array-location"])] = chunk
 
 
-def write_chunk_with_tensorstore(chunk: np.ndarray, ts_store: ts.TensorStore, block_info: Dict) -> None:
+def write_chunk_with_tensorstore(chunk: np.ndarray, ts_store, block_info: Dict) -> None:
     ts_store[tuple(slice(*b) for b in block_info[0]["array-location"])] = chunk
 
 

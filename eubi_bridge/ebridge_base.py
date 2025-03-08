@@ -256,10 +256,10 @@ class BridgeBase:
             # self._dask_temp_dir.cleanup()
             return self
         if temp_dir in ('auto', None):
-            temp_dir = tempfile.TemporaryDirectory()
+            temp_dir = tempfile.TemporaryDirectory(delete = False)
         else:
             os.makedirs(temp_dir, exist_ok=True)
-            temp_dir = tempfile.TemporaryDirectory(dir=temp_dir)
+            temp_dir = tempfile.TemporaryDirectory(dir=temp_dir, delete = False)
         self._dask_temp_dir = temp_dir
         return self
 
@@ -381,6 +381,7 @@ class BridgeBase:
                                rechunk_method=rechunk_method,
                                **extra_kwargs
                                )
+
         # gc.collect()
         return results
 

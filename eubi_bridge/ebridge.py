@@ -184,6 +184,7 @@ class EuBIBridge:
                 rechunk_method='auto',
                 rechunkers_max_mem = "auto",
                 trim_memory=False,
+                metadata_reader = 'bfio'
             ),
             downscale = dict(
                 scale_factor=(1, 1, 2, 2, 2),
@@ -370,7 +371,8 @@ class EuBIBridge:
                              rechunk_method: str = 'default',
                              rechunkers_max_mem: str = 'default',
                              trim_memory: bool = 'default',
-                             use_tensorstore: bool = 'default'
+                             use_tensorstore: bool = 'default',
+                             metadata_reader: str = 'default'
                              ):
         """
         Updates conversion configuration settings. To update the current default value for a parameter, provide that parameter with a value other than 'default'.
@@ -407,7 +409,8 @@ class EuBIBridge:
             'rechunk_method': rechunk_method,
             'rechunkers_max_mem': rechunkers_max_mem,
             'trim_memory': trim_memory,
-            'use_tensorstore': use_tensorstore
+            'use_tensorstore': use_tensorstore,
+            'metadata_reader': metadata_reader
         }
 
         for key in params:
@@ -582,6 +585,12 @@ class EuBIBridge:
             None
         """
         t0 = time.time()
+
+        # Get parameters:
+        self.cluster_params = self._collect_params('cluster', **kwargs)
+        self.conversion_params = self._collect_params('conversion', **kwargs)
+        self.downscale_params = self._collect_params('downscale', **kwargs)
+
         print(f"Base conversion initiated.")
         ###### Handle input data and metadata
         if os.path.isfile(input_path):
@@ -602,7 +611,7 @@ class EuBIBridge:
         else:
             sample_path = filepaths[0]
 
-        self._vmeta = VoxelMeta(sample_path, series = series)
+        self._vmeta = VoxelMeta(sample_path, series = series, metadata_reader = self.conversion_params['metadata_reader'])
         self._vmeta.fill_default_meta()
 
         scales = self._collect_scales(**kwargs)
@@ -637,13 +646,14 @@ class EuBIBridge:
             axes_of_concatenation = concatenation_axes
             )
 
-        ###### Collect params
-        self.cluster_params = self._collect_params('cluster', **kwargs)
-        self.conversion_params = self._collect_params('conversion', **kwargs)
-        self.downscale_params = self._collect_params('downscale', **kwargs)
+        ###### Manage params
+        # self.cluster_params = self._collect_params('cluster', **kwargs)
+        # self.conversion_params = self._collect_params('conversion', **kwargs)
+        # self.downscale_params = self._collect_params('downscale', **kwargs)
+        verbose = self.cluster_params['verbose']
         if 'region_shape' in kwargs.keys():
             self.conversion_params['region_shape'] = kwargs.get('region_shape')
-        if self.cluster_params['verbose']:
+        if verbose:
             print(f"Cluster params:")
             pprint.pprint(self.cluster_params)
             print(f"Conversion params:")
@@ -665,7 +675,6 @@ class EuBIBridge:
         base.set_dask_temp_dir(self._dask_temp_dir)
 
         ###### Convert
-        verbose = self.cluster_params['verbose']
         self.base_results = base.write_arrays(output_path,
                                            pixel_sizes=scales,
                                            pixel_units=units,
@@ -689,6 +698,13 @@ class EuBIBridge:
 
             print(f"Downscaling finished.")
         if self.client is not None:
+            self.client.shutdown()
             self.client.close()
+
+        if isinstance(self._dask_temp_dir, tempfile.TemporaryDirectory):
+            shutil.rmtree(self._dask_temp_dir.name)
+        else:
+            shutil.rmtree(self._dask_temp_dir)
+
         t1 = time.time()
         print(f"Elapsed for conversion + downscaling: {(t1 - t0) / 60} min.")

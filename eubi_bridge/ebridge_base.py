@@ -21,17 +21,25 @@ import logging, warnings, dask
 
 logging.getLogger('distributed.diskutils').setLevel(logging.CRITICAL)
 
+
 class VoxelMeta:
 
     """
     Parse the metadata either from a reference image or an ome.xml file.
     """
 
-    def __init__(self, path: Union[str, Path], series: int = None):
+    def __init__(self, path: Union[str, Path],
+                 series: int = None,
+                 metadata_reader = 'bfio' # bfio or aicsimageio
+                 ):
         self.path = path
         self.series = series
         if series is not None:
             assert isinstance(self.series, (int, str)), f"The series parameter must be either an integer or string. Selection of multiple series from the same image is currently not supported."
+        if self.series is None:
+            self.series = 0
+        self.omemeta = None
+        self._meta_reader = metadata_reader
         self._read_meta()
         self._scales = None
         self._units = None
@@ -39,17 +47,21 @@ class VoxelMeta:
 
     def _read_meta(self):
         if self.path.endswith('ome') or self.path.endswith('xml'):
-            from aicsimageio.metadata.utils import OME
+            from ome_types import OME
             self.omemeta = OME().from_xml(self.path)
         else:
-            from aicsimageio.readers.bioformats_reader import BioformatsReader
-            img = AICSImage(
-                self.path,
-                reader = BioformatsReader
-            )
-            if self.series is not None:
-                img.set_scene(self.series)
-            self.omemeta = img.ome_metadata
+            if self._meta_reader == 'aicsimageio':
+                from aicsimageio.readers.bioformats_reader import BioformatsReader
+                img = AICSImage(
+                    self.path,
+                    reader = BioformatsReader
+                )
+                if self.series is not None:
+                    img.set_scene(self.series)
+                self.omemeta = img.ome_metadata
+            elif self._meta_reader == 'bfio':
+                from bfio import BioReader
+                self.omemeta = BioReader(self.path, backend = 'bioformats').metadata
         return self.omemeta
 
     @property
@@ -71,7 +83,7 @@ class VoxelMeta:
         if omemeta is None:
             pixels = None
         else:
-            pixels = omemeta.images[0].pixels  # Image index is 0 by default. So far multiseries data not supported.
+            pixels = omemeta.images[self.series].pixels  # Image index is 0 by default. So far multiseries data not supported.
         return pixels
 
     def get_scales(self):
@@ -141,6 +153,9 @@ class VoxelMeta:
                 self.set_units(**{ax: unit_map[ax]})
         return self
 
+# meta = VoxelMeta(f"/media/oezdemir/Windows/FROM_LINUX/data/data_from_project_ome_zarr_tools/monolithic/17_03_18.lif", series = 11)
+# meta.fill_default_meta()
+
 def get_chunksize_from_shape(chunk_shape, dtype):
     itemsize = dtype.itemsize
     chunk_size = itemsize * np.prod(chunk_shape)
@@ -187,23 +202,26 @@ def _get_refined_arrays(fileset: FileSet,
                         path_separator = '-'
                         ):
     """Get concatenated arrays from the fileset in an organized way."""
-    root_path_ = root_path.split('/')
+    root_path_ = root_path.split(os.sep)
     root_path_top = []
     for item in root_path_:
         if '*' in item:
             break
         root_path_top.append(item)
-    root_path = os.path.join('/', *root_path_top)
 
+    if os.name == 'nt':
+        root_path = os.path.join(f"c:{os.sep}", *root_path_top)
+    else:
+        root_path = os.path.join(os.sep, *root_path_top)
     arrays_ = fileset.get_concatenated_arrays()
     arrays = {}
 
     for key in arrays_.keys():
         new_key = key.replace(root_path, '')
         new_key = os.path.splitext(new_key)[0]
-        if new_key.startswith('/'):
+        if new_key.startswith(os.sep):
             new_key = new_key[1:]
-        new_key = new_key.replace('/', path_separator)
+        new_key = new_key.replace(os.sep, path_separator)
         arrays[new_key] = arrays_[key]
     return arrays
 
@@ -215,9 +233,9 @@ class BridgeBase:
                  excludes=None,
                  metadata_path = None,
                  series = None,
-                 client = None
+                 client = None,
                  ):
-        if not input_path.startswith('/'):
+        if not input_path.startswith(os.sep):
             input_path = os.path.abspath(input_path)
         self._input_path = input_path
         self._includes = includes
@@ -246,7 +264,7 @@ class BridgeBase:
         return self
 
     def read_dataset(self,
-                     verified_for_cluster
+                     verified_for_cluster,
                      ):
         """
         - If the input path is a directory, can read single or multiple files from it.

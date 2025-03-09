@@ -9,7 +9,9 @@ build:
   number: 0
   noarch: python
   script:
-    - "{{ PYTHON }} -m pip install . -vv"
+    - "{{ PYTHON }} -m pip install . --no-deps --ignore-installed --no-cache-dir"
+  entry_points:
+    - eubi = eubi_bridge.cmd:eubibridge_cmd
 
 requirements:
   build:
@@ -24,6 +26,8 @@ requirements:
   run:
     - conda-forge::python>=3.9
     - conda-forge::pip
+    - conda-forge::setuptools
+    - conda-forge::wheel
     - conda-forge::numpy
     - conda-forge::dask<=2024.7.0
     - conda-forge::distributed<=2024.7.0
@@ -33,16 +37,19 @@ requirements:
     - conda-forge::s3fs
     - conda-forge::fire
     - conda-forge::rechunker
-    - conda-forge::watchdog
     - conda-forge::zstandard
     - conda-forge::xmlschema
     - conda-forge::aicsimageio=4.10.*
+    - conda-forge::openjdk=8.*
+    - conda-forge::bfio
     - conda-forge::bioformats_jar
     - conda-forge::readlif
     - conda-forge::czifile
     - conda-forge::pydantic=1.9.*
     - conda-forge::tifffile=2024.8.*
-
+test:
+  commands:
+    - eubi --help  # Verify CLI is working
 
 
 

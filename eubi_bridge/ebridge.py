@@ -611,7 +611,9 @@ class EuBIBridge:
         else:
             sample_path = filepaths[0]
 
-        self._vmeta = VoxelMeta(sample_path, series = series, metadata_reader = self.conversion_params['metadata_reader'])
+        self._vmeta = VoxelMeta(sample_path, series = series,
+                                metadata_reader = self.conversion_params['metadata_reader']
+                                )
         self._vmeta.fill_default_meta()
 
         scales = self._collect_scales(**kwargs)
@@ -628,13 +630,18 @@ class EuBIBridge:
         assert len(units) == 5, f"Units must be a tuple of size 5. Add either of the default units for non-existent dimensions: (Frame, Channel, Slice, Pixel, Pixel)."
 
         ######
+        verified_for_cluster = verify_filepaths_for_cluster(filepaths)
+        if not verified_for_cluster:
+            self.cluster_params['no_distributed'] = True
+
+        self._start_cluster(**self.cluster_params)
+
         base = BridgeBase(input_path,
                         excludes=excludes,
                         includes=includes,
                         series=series
                         )
 
-        verified_for_cluster = verify_filepaths_for_cluster(filepaths)
         base.read_dataset(verified_for_cluster)
 
         base.digest(
@@ -666,10 +673,6 @@ class EuBIBridge:
         self.conversion_params['temp_dir'] = temp_dir
         self.downscale_params['temp_dir'] = temp_dir
 
-        if not verified_for_cluster:
-            self.cluster_params['no_distributed'] = True
-
-        self._start_cluster(**self.cluster_params)
         if self.client is not None:
             base.client = self.client
         base.set_dask_temp_dir(self._dask_temp_dir)

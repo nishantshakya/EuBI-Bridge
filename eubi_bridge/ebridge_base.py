@@ -153,8 +153,6 @@ class VoxelMeta:
                 self.set_units(**{ax: unit_map[ax]})
         return self
 
-# meta = VoxelMeta(f"/media/oezdemir/Windows/FROM_LINUX/data/data_from_project_ome_zarr_tools/monolithic/17_03_18.lif", series = 11)
-# meta.fill_default_meta()
 
 def get_chunksize_from_shape(chunk_shape, dtype):
     itemsize = dtype.itemsize
@@ -292,11 +290,13 @@ class BridgeBase:
                             paths))
         self.filepaths = sorted(list(filter(os.path.isfile, paths)))
 
-        read_scheduler = 'processes' if verified_for_cluster else 'threads'
+        # read_scheduler = 'processes' if verified_for_cluster else 'threads'
 
         if series is None:
             futures = [delayed(read_single_image_asarray)(path) for path in self.filepaths]
-            self.arrays = dask.compute(*futures, scheduler=read_scheduler)
+            self.arrays = dask.compute(*futures
+                                       # scheduler=read_scheduler
+                                       )
             # import joblib
             # with joblib.parallel_config(backend = 'loky'):
             #     self.arrays = joblib.Parallel(n_jobs=4)(
@@ -304,7 +304,9 @@ class BridgeBase:
             #     )
         else:
             futures = [delayed(load_image_scene)(path, series) for path in self.filepaths]
-            imgs = dask.compute(*futures, scheduler=read_scheduler)
+            imgs = dask.compute(*futures
+                                # scheduler=read_scheduler
+                                )
             self.arrays = [img.get_image_dask_data() for img in imgs]
             self.filepaths = [os.path.join(img.reader._path, img.current_scene)
                               for img in imgs] # stage the specific series for each lif file.

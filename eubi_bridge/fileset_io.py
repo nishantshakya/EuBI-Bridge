@@ -5,6 +5,7 @@ from pathlib import Path
 import dask.array as da, numpy as np, dask
 from collections import Counter
 from typing import Iterable, Callable, Union, List, Tuple
+from natsort import natsorted
 
 from eubi_bridge.ngff import defaults
 
@@ -12,18 +13,21 @@ transpose_list = lambda l: list(map(list, zip(*l)))
 get_numerics = lambda string: list(re.findall(r'\d+', string))
 get_alpha = lambda string: ''.join([i for i in string if not i.isnumeric()])
 
-def get_matches(pattern, strings, return_non_matches = False):
+
+def get_matches(pattern, strings, return_non_matches=False):
     matches = [re.search(pattern, string) for string in strings]
     if return_non_matches:
         return matches
     return [match for match in matches if match is not None]
 
-def split_by_match(filepaths, *args): # Group per channel using channel query
+
+def split_by_match(filepaths, *args):  # Group per channel using channel query
     ret = dict().fromkeys(args)
     for key in args:
         matches = get_matches(key, filepaths)
         ret[key] = matches
     return ret
+
 
 def find_match_and_numeric(filepaths, *args):
     ret = {}
@@ -37,6 +41,7 @@ def find_match_and_numeric(filepaths, *args):
                 ret[span].append(match)
     return ret
 
+
 def concatenate_shapes_along_axis(shapes: Iterable,
                                   axis: int
                                   ):
@@ -47,17 +52,19 @@ def concatenate_shapes_along_axis(shapes: Iterable,
             if idx == axis:
                 concatenated_shape[idx] += size
             else:
-                assert size == reference_shape[idx], ValueError("For concatenation to succeed, all dimensions except the dimension of concatenation must match.")
+                assert size == reference_shape[idx], ValueError(
+                    "For concatenation to succeed, all dimensions except the dimension of concatenation must match.")
     return concatenated_shape
+
 
 def accumulate_slices_along_axis(shapes: Iterable,
                                  axis: int,
                                  slices: Union[tuple, list] = None
-                                  ):
+                                 ):
     reference_shape = shapes[0]
     if slices is None:
-        slices = [[slice(None,None) for _ in reference_shape] for _ in shapes]
-    assert(len(shapes) == len(slices))
+        slices = [[slice(None, None) for _ in reference_shape] for _ in shapes]
+    assert (len(shapes) == len(slices))
     sizes_per_axis = [shape[axis] for shape in shapes]
     cummulative_sizes = [0] + np.cumsum(sizes_per_axis).tolist()
     slice_tuples = [(cummulative_sizes[idx], cummulative_sizes[idx + 1]) for idx in range(len(sizes_per_axis))]
@@ -68,18 +75,19 @@ def accumulate_slices_along_axis(shapes: Iterable,
         slices[idx] = tuple(slclist)
     return slices
 
+
 def _reduce_paths(paths: Iterable[str],
                   dimension_tag,
                   reduced_paths: Iterable[str] = None,
-                  replacement = 'set',
-                 ):
+                  replacement='set',
+                  ):
     # replacement = dimension_tag.replace(',', '') + f'{replace_with}'
     # print(dimension_tag, replacement)
     if reduced_paths is None:
         reduced_paths = copy.deepcopy(paths)
-    matches = get_matches(f'{dimension_tag}\d+', paths, return_non_matches = True)
+    matches = get_matches(f'{dimension_tag}\d+', paths, return_non_matches=True)
     if all(item is None for item in matches):
-        matches = get_matches(dimension_tag, paths, return_non_matches = True)
+        matches = get_matches(dimension_tag, paths, return_non_matches=True)
     for idx, match in enumerate(matches):
         if match is None:
             pass
@@ -89,9 +97,10 @@ def _reduce_paths(paths: Iterable[str],
             reduced_paths[idx] = string
     return reduced_paths
 
+
 def _reduce_paths_with_tuple(paths: Iterable[str],
-                              dimension_tag: Union[tuple, list],
-                             replacement = 'set'
+                             dimension_tag: Union[tuple, list],
+                             replacement='set'
                              ):
     assert isinstance(dimension_tag, (tuple, list))
     combined_pattern = "".join(dimension_tag) + replacement
@@ -104,6 +113,7 @@ def _reduce_paths_with_tuple(paths: Iterable[str],
             reduced_paths.append(path)
     return reduced_paths
 
+
 def reduce_paths(paths: Iterable[str],
                  dimension_tag: Union[tuple, str],
                  reduced_paths: Iterable[str] = None,
@@ -115,6 +125,7 @@ def reduce_paths(paths: Iterable[str],
     elif isinstance(dimension_tag, (tuple, list)):
         return _reduce_paths_with_tuple(paths, dimension_tag, replace_with)
 
+
 # def array_concatenate(arrays, axis=0):
 #     """Efficiently concatenate Dask arrays using map_blocks."""
 #     arrays = [da.asarray(arr) for arr in arrays]  # Ensure inputs are Dask arrays
@@ -123,11 +134,12 @@ def reduce_paths(paths: Iterable[str],
 #     )
 
 
-class FileSet: # TODO: add a pixel_size parameter
+class FileSet:  # TODO: add a pixel_size parameter
     """
     Make sure the filepaths are sorted before passing them to this class.
     This class also assumes that the input files can contain maximum 5 dimensions.
     """
+
     def __init__(self,
                  filepaths: Iterable[str],
                  shapes: Iterable[tuple | list] = None,
@@ -169,10 +181,10 @@ class FileSet: # TODO: add a pixel_size parameter
             if tag is not None:
                 dimension_tags.append(tag)
                 specified_axes.append(axis)
-            
+
         self.dimension_tags = dimension_tags
         self.specified_axes = specified_axes
-        
+
         self.group = {'': filepaths}
         assert len(self.dimension_tags) == len(self.specified_axes)
         self.slice_dict = {path: tuple(slice(0, size) for size in shape) for path, shape in self.shape_dict.items()}
@@ -195,8 +207,8 @@ class FileSet: # TODO: add a pixel_size parameter
     #     return self.specified_axes[self.dimension_tags.index(dimension_tag)]
 
     def get_numerics_per_dimension_tag(self,
-                                             dimension_tag
-                                             ):
+                                       dimension_tag
+                                       ):
         filepaths = list(self.group.values())[0]
         matches = get_matches(f'{dimension_tag}\d+', filepaths)
         spans = [match.string[match.start():match.end()] for match in matches]
@@ -204,7 +216,7 @@ class FileSet: # TODO: add a pixel_size parameter
         # TODO: add an incrementality validator
         return numerics
 
-    def _csplit_by(self, tup: tuple): # TODO: maybe redefine as nonserial_split?
+    def _csplit_by(self, tup: tuple):  # TODO: maybe redefine as nonserial_split?
         group = copy.deepcopy(self.group)
         for key, filepaths in group.items():
             alpha_dict = {key: [] for key in tup}
@@ -232,7 +244,7 @@ class FileSet: # TODO: add a pixel_size parameter
                 for key, filepaths in group.items():
                     matches = get_matches(f'{dim}\d+', filepaths)
                     spans = [match.string[match.start():match.end()] for match in matches]
-                    spans = [span.replace(dim, '') for span in spans] ### remove search term from the spans
+                    spans = [span.replace(dim, '') for span in spans]  ### remove search term from the spans
                     numerics = [get_numerics(span)[0] for span in spans]
                     numeric_categories = np.unique(numerics).tolist()
                     for idx, num in enumerate(numerics):
@@ -250,8 +262,8 @@ class FileSet: # TODO: add a pixel_size parameter
         return group
 
     def concatenate_along(self,
-                           axis: int
-                           ):
+                          axis: int
+                          ):
         ax_dict = {0: 't',
                    1: 'c',
                    2: 'z',
@@ -266,7 +278,7 @@ class FileSet: # TODO: add a pixel_size parameter
         group = self._split_by(*to_split)
         axis = self.specified_axes[self.dimension_tags.index(dimension_tag)]
         for key, paths in group.items():
-            sorted_paths = sorted(paths)
+            sorted_paths = natsorted(paths)
             group_slices = [self.slice_dict[path] for path in sorted_paths]
             group_shapes = [self.shape_dict[path] for path in sorted_paths]
             group_reduced_paths = [self.path_dict[path] for path in sorted_paths]
@@ -280,7 +292,7 @@ class FileSet: # TODO: add a pixel_size parameter
 
             if self.array_dict is not None:
                 group_arrays = [self.array_dict[path] for path in sorted_paths]
-                new_array = da.concatenate(group_arrays, axis = axis)
+                new_array = da.concatenate(group_arrays, axis=axis)
 
             for path, slc, reduced_path in zip(sorted_paths, new_slices, new_reduced_paths):
                 self.slice_dict[path] = slc
@@ -288,6 +300,7 @@ class FileSet: # TODO: add a pixel_size parameter
                 self.path_dict[path] = reduced_path
                 if self.array_dict is not None:
                     self.array_dict[path] = new_array
+
         return group
 
     # def get_table(self):
@@ -364,70 +377,3 @@ class FileSet: # TODO: add a pixel_size parameter
                 unique_ids.append(key)
         unique_arrays = [self.array_dict[path] for path in unique_ids]
         return dict(zip(unique_paths, unique_arrays))
-#
-#
-# # from aicsimageio import AICSImage
-#
-# from bioio import BioImage
-#
-# input_path = f"/media/oezdemir/Windows/FROM_LINUX/data/franziska/crop/**"
-# input_path = f"/home/oezdemir/PycharmProjects/dask_env1/EuBI-Bridge_tests/multichannel_timeseries_nested/**"
-# # input_path = f"/media/oezdemir/Windows/FROM_LINUX/data/data_from_project_ome_zarr_tools/monolithic/17_03_18.lif"
-# paths = glob.glob(input_path, recursive=True)
-# paths = [path for path in paths if os.path.isfile(path)]
-#
-# imgs = [BioImage(path) for path in paths]
-# arrs = [BioImage(path).get_image_dask_data() for path in paths]
-
-# arr = arrs[0]
-# img = imgs[0]
-#
-# paths = img.scenes
-# arrs = []
-# for path in paths:
-#     img.set_scene(path)
-#     arr = img.get_image_dask_data()
-#     arrs.append(arr)
-#
-# fsio = FileSet(paths, arrays = arrs)
-#
-#
-#
-#
-# fsio = FileSet(paths, arrays = arrs, axis_tag0='View1-T', axis_tag1=('mG', 'H2B'))
-# fsio = FileSet(paths, arrays = arrs, axis_tag0='T', axis_tag1='Channel')
-# # fsio = FileSet(paths, arrays = arrs, axis_tag0='T', axis_tag1=('H2B', 'mG'))
-# # grT = fsio._split_by(('H2B', 'mG'))
-# # grV = fsio._split_by(('mG', 'H2B'))
-# # fsio.concatenate_along(0)
-# grT = fsio.concatenate_along(0)
-# grV = fsio.concatenate_along(1)
-# # fsio.refine_path_dict()
-# arrs1 = fsio.get_concatenated_arrays()
-# # # grvv = fsio._split_by('View1-T')
-# # import pprint
-# # pprint.pprint(fsio.path_dict)
-#
-#
-
-####
-# 'T0001'
-# ['/media/oezdemir/Windows/FROM_LINUX/data/franziska/crop/H2B_View1/H2B_View1-T0001.tif',
-# '/media/oezdemir/Windows/FROM_LINUX/data/franziska/crop/mG_View1/mG_View1-T0001.tif']
-####
-
-
-
-# input_path = f"/home/oezdemir/PycharmProjects/dask_env1/EuBI-Bridge_tests/multichannel_timeseries_nested/**Channel1**/*"
-# paths = glob.glob(input_path, recursive=True)
-# paths = [path for path in paths if os.path.isfile(path)]
-# from bioio import BioImage
-# imgs = [BioImage(path) for path in paths]
-# arrs = [BioImage(path).get_image_dask_data() for path in paths]
-#
-# fsio = FileSet(paths, arrays = arrs, axis_tag0 = 'T', axis_tag1 = 'Channel')
-# fsio.concatenate_along(0)
-# fsio.concatenate_along(1)
-# fsio.refine_path_dict()
-
-

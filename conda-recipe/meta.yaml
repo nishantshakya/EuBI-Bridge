@@ -29,6 +29,7 @@ requirements:
     - conda-forge::setuptools
     - conda-forge::wheel
     - conda-forge::numpy
+    - conda-forge::natsort
     - conda-forge::dask<=2024.7.0
     - conda-forge::distributed<=2024.7.0
     - conda-forge::zarr<=2.18.3

@@ -191,7 +191,7 @@ def read_single_image_asarray(input_path):
 
 def get_image_shape(input_path, scene_idx):
     from aicsimageio import AICSImage
-    img = AICSImage(input_path)  # Still only inside workers
+    img = AICSImage(input_path)
     img.set_scene(img.scenes[scene_idx])
     return img.shape
 
@@ -199,7 +199,7 @@ def _get_refined_arrays(fileset: FileSet,
                         root_path: str,
                         path_separator = '-'
                         ):
-    """Get concatenated arrays from the fileset in an organized way."""
+    """Get concatenated arrays from the fileset in an organized way, respecting the operating system."""
     root_path_ = root_path.split(os.sep)
     root_path_top = []
     for item in root_path_:
@@ -251,7 +251,6 @@ class BridgeBase:
     def set_dask_temp_dir(self, temp_dir = 'auto'):
         if isinstance(temp_dir, tempfile.TemporaryDirectory):
             self._dask_temp_dir = temp_dir
-            # self._dask_temp_dir.cleanup()
             return self
         if temp_dir in ('auto', None):
             temp_dir = tempfile.TemporaryDirectory(delete = False)
@@ -290,26 +289,15 @@ class BridgeBase:
                             paths))
         self.filepaths = sorted(list(filter(os.path.isfile, paths)))
 
-        # read_scheduler = 'processes' if verified_for_cluster else 'threads'
-
-        if series is None:
+        if series is None or series==0:
             futures = [delayed(read_single_image_asarray)(path) for path in self.filepaths]
-            self.arrays = dask.compute(*futures
-                                       # scheduler=read_scheduler
-                                       )
-            # import joblib
-            # with joblib.parallel_config(backend = 'loky'):
-            #     self.arrays = joblib.Parallel(n_jobs=4)(
-            #         joblib.delayed(read_single_image_asarray)(path) for path in self.filepaths
-            #     )
+            self.arrays = dask.compute(*futures)
         else:
             futures = [delayed(load_image_scene)(path, series) for path in self.filepaths]
-            imgs = dask.compute(*futures
-                                # scheduler=read_scheduler
-                                )
+            imgs = dask.compute(*futures)
             self.arrays = [img.get_image_dask_data() for img in imgs]
             self.filepaths = [os.path.join(img.reader._path, img.current_scene)
-                              for img in imgs] # stage the specific series for each lif file.
+                              for img in imgs] # In multiseries images, create fake filepath for the specified series/scene.
 
         if metadata_path is None:
             self.metadata_path = self.filepaths[0]

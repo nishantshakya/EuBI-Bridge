@@ -153,8 +153,6 @@ class VoxelMeta:
                 self.set_units(**{ax: unit_map[ax]})
         return self
 
-# meta = VoxelMeta(f"/media/oezdemir/Windows/FROM_LINUX/data/data_from_project_ome_zarr_tools/monolithic/17_03_18.lif", series = 11)
-# meta.fill_default_meta()
 
 def get_chunksize_from_shape(chunk_shape, dtype):
     itemsize = dtype.itemsize
@@ -189,11 +187,17 @@ def read_single_image(input_path):
     return load_image_scene(input_path, scene_idx=None)
 
 def read_single_image_asarray(input_path):
-    return read_single_image(input_path).get_image_dask_data()
+    arr = read_single_image(input_path).get_image_dask_data()
+    if arr.ndim > 5:
+        new_shape = np.array(arr.shape)
+        new_shape[1] = (arr.shape[-1] * arr.shape[1])
+        reshaped = arr.reshape(new_shape[:-1])
+        return reshaped
+    return arr
 
 def get_image_shape(input_path, scene_idx):
     from aicsimageio import AICSImage
-    img = AICSImage(input_path)  # Still only inside workers
+    img = AICSImage(input_path)
     img.set_scene(img.scenes[scene_idx])
     return img.shape
 
@@ -201,8 +205,8 @@ def _get_refined_arrays(fileset: FileSet,
                         root_path: str,
                         path_separator = '-'
                         ):
-    """Get concatenated arrays from the fileset in an organized way."""
-    root_path_ = root_path.split(os.sep)
+    """Get concatenated arrays from the fileset in an organized way, respecting the operating system."""
+    root_path_ = os.path.normpath(root_path).split(os.sep)
     root_path_top = []
     for item in root_path_:
         if '*' in item:
@@ -210,19 +214,21 @@ def _get_refined_arrays(fileset: FileSet,
         root_path_top.append(item)
 
     if os.name == 'nt':
-        root_path = os.path.join(f"c:{os.sep}", *root_path_top)
+        # Use os.path.splitdrive to handle any drive letter
+        drive, _ = os.path.splitdrive(root_path)
+        root_path = os.path.join(drive + os.sep, *root_path_top)
     else:
         root_path = os.path.join(os.sep, *root_path_top)
+
     arrays_ = fileset.get_concatenated_arrays()
     arrays = {}
 
     for key in arrays_.keys():
-        new_key = key.replace(root_path, '')
+        new_key = os.path.relpath(key, root_path)
         new_key = os.path.splitext(new_key)[0]
-        if new_key.startswith(os.sep):
-            new_key = new_key[1:]
         new_key = new_key.replace(os.sep, path_separator)
         arrays[new_key] = arrays_[key]
+
     return arrays
 
 
@@ -253,7 +259,6 @@ class BridgeBase:
     def set_dask_temp_dir(self, temp_dir = 'auto'):
         if isinstance(temp_dir, tempfile.TemporaryDirectory):
             self._dask_temp_dir = temp_dir
-            # self._dask_temp_dir.cleanup()
             return self
         if temp_dir in ('auto', None):
             temp_dir = tempfile.TemporaryDirectory(delete = False)
@@ -292,22 +297,15 @@ class BridgeBase:
                             paths))
         self.filepaths = sorted(list(filter(os.path.isfile, paths)))
 
-        read_scheduler = 'processes' if verified_for_cluster else 'threads'
-
-        if series is None:
+        if series is None or series==0:
             futures = [delayed(read_single_image_asarray)(path) for path in self.filepaths]
-            self.arrays = dask.compute(*futures, scheduler=read_scheduler)
-            # import joblib
-            # with joblib.parallel_config(backend = 'loky'):
-            #     self.arrays = joblib.Parallel(n_jobs=4)(
-            #         joblib.delayed(read_single_image_asarray)(path) for path in self.filepaths
-            #     )
+            self.arrays = dask.compute(*futures)
         else:
             futures = [delayed(load_image_scene)(path, series) for path in self.filepaths]
-            imgs = dask.compute(*futures, scheduler=read_scheduler)
+            imgs = dask.compute(*futures)
             self.arrays = [img.get_image_dask_data() for img in imgs]
             self.filepaths = [os.path.join(img.reader._path, img.current_scene)
-                              for img in imgs] # stage the specific series for each lif file.
+                              for img in imgs] # In multiseries images, create fake filepath for the specified series/scene.
 
         if metadata_path is None:
             self.metadata_path = self.filepaths[0]
@@ -434,13 +432,5 @@ def downscale(
         # print(e)
         pass
     return results
-
-
-
-
-
-
-
-
 
 

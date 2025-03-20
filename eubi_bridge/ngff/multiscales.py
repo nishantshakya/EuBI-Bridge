@@ -410,7 +410,8 @@ class Pyramid:
         if scale_factor is None:
             scale_factor = tuple([defaults.scale_factor_map[key] for key in self.axes])
         scale = self.meta.scales['0']
-        assert np.all(np.greater_equal(darr.shape, scale_factor)), f"Array shape must be greater than or equal to the scale factor for all dimensions."
+        scale_factor = tuple(np.minimum(darr.shape, scale_factor))
+        # assert np.all(np.greater_equal(darr.shape, scale_factor)), f"Array shape must be greater than or equal to the scale factor for all dimensions."
         self.downscaler = Downscaler(array=darr,
                                      scale_factor=scale_factor,
                                      n_layers=n_layers,
@@ -418,77 +419,3 @@ class Pyramid:
                                      downscale_method = downscale_method,
                                      backend = backend)
         return self
-
-    # def store_downscaled_arrays(self,
-    #                             overwrite=True,
-    #                             n_jobs=4,
-    #                             memory_limit='4GB',
-    #                             threads_per_worker=1,
-    #                             distributed = False,
-    #                             use_regions = True,
-    #                             **storage_options
-    #                             ):
-    #     self.shrink(hard = True)
-    #     scales = self.downscaler.dm.scales
-    #     downscaled_arrays = self.downscaler.downscaled_arrays
-    #     backend = self.downscaler.backend
-    #     paths = list(downscaled_arrays.keys())
-    #     for path, scale in zip(paths, scales):
-    #         self.meta.add_dataset(path = path, scale = tuple(scale), overwrite = True)
-    #     self.meta.to_ngff(self.gr)
-    #
-    #     unstored_arrays = {key: value
-    #                        for key, value in downscaled_arrays.items()
-    #                        if key != '0'}
-
-
-    # def store_downscaled_arrays(self,
-    #                             overwrite=True,
-    #                             n_jobs=4,
-    #                             memory_limit='4GB',
-    #                             threads_per_worker=1,
-    #                             distributed = False,
-    #                             use_regions = True,
-    #                             **storage_options
-    #                             ):
-    #     self.shrink(hard = True)
-    #     scales = self.downscaler.dm.scales
-    #     downscaled_arrays = self.downscaler.downscaled_arrays
-    #     backend = self.downscaler.backend
-    #     paths = list(downscaled_arrays.keys())
-    #     for path, scale in zip(paths, scales):
-    #         self.meta.add_dataset(path = path, scale = tuple(scale), overwrite = True)
-    #     self.meta.to_ngff(self.gr)
-    #
-    #     unstored_arrays = {key: value
-    #                        for key, value in downscaled_arrays.items()
-    #                        if key != '0'}
-    #     if distributed:
-    #         _ = write_to_group_distributed(arrays = unstored_arrays,
-    #                                          gr = self.gr,
-    #                                          overwrite=overwrite,
-    #                                          n_jobs=n_jobs,
-    #                                          memory_limit=memory_limit,
-    #                                          threads_per_worker=threads_per_worker,
-    #                                          backend=backend,
-    #                                          **storage_options
-    #                                          )
-    #     else:
-    #         _ = write_to_group_local(
-    #                                 arrays=unstored_arrays,
-    #                                 gr=self.gr,
-    #                                 overwrite=overwrite,
-    #                                 backend=backend,
-    #                                 use_regions = use_regions,
-    #                                 **storage_options
-    #                                 )
-    #     return self
-    #
-    #
-#
-# path = f"/home/oezdemir/PycharmProjects/dask_env1/data/sink/set_View1-set"
-# pyr = Pyramid(path)
-# # pyr.base_array
-# # pyr.update_downscaler(scale_factor=(1, 1, 2, 2, 2), n_layers=3)
-# # layers = pyr.downscaler.downscaled_arrays
-# downscaler = Downscaler(pyr.dask_arrays['0'], scale_factor = (1, 1, 2, 2, 2), n_layers = 3, scale = (1, 1, 10, 10, 10))

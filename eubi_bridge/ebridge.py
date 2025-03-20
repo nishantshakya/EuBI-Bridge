@@ -195,7 +195,6 @@ class EuBIBridge:
 
         self.root_defaults = defaults
         self.root_dask_defaults = root_dask_defaults
-        # import zarr
         config_gr = zarr.open_group(configpath, mode = 'a')
         config = config_gr.attrs
         for key in defaults.keys():
@@ -540,7 +539,6 @@ class EuBIBridge:
                                        )
             cluster.scale(n_jobs)
             self.client = Client(cluster)
-            # self.client.run(lambda: gc.disable())
             if verbose:
                 print(self.client.cluster)
         return self
@@ -611,7 +609,9 @@ class EuBIBridge:
         else:
             sample_path = filepaths[0]
 
-        self._vmeta = VoxelMeta(sample_path, series = series, metadata_reader = self.conversion_params['metadata_reader'])
+        self._vmeta = VoxelMeta(sample_path, series = series,
+                                metadata_reader = self.conversion_params['metadata_reader']
+                                )
         self._vmeta.fill_default_meta()
 
         scales = self._collect_scales(**kwargs)
@@ -627,14 +627,20 @@ class EuBIBridge:
                 units[idx] = self._vmeta.units[idx]
         assert len(units) == 5, f"Units must be a tuple of size 5. Add either of the default units for non-existent dimensions: (Frame, Channel, Slice, Pixel, Pixel)."
 
-        ######
+        ###### Start the cluster
+        verified_for_cluster = verify_filepaths_for_cluster(filepaths) ### Ensure non-bioformats conversion. If bioformats is needed, fall back on local conversion.
+        if not verified_for_cluster:
+            self.cluster_params['no_distributed'] = True
+
+        self._start_cluster(**self.cluster_params)
+
+        ###### Read and concatenate
         base = BridgeBase(input_path,
                         excludes=excludes,
                         includes=includes,
                         series=series
                         )
 
-        verified_for_cluster = verify_filepaths_for_cluster(filepaths)
         base.read_dataset(verified_for_cluster)
 
         base.digest(
@@ -646,10 +652,6 @@ class EuBIBridge:
             axes_of_concatenation = concatenation_axes
             )
 
-        ###### Manage params
-        # self.cluster_params = self._collect_params('cluster', **kwargs)
-        # self.conversion_params = self._collect_params('conversion', **kwargs)
-        # self.downscale_params = self._collect_params('downscale', **kwargs)
         verbose = self.cluster_params['verbose']
         if 'region_shape' in kwargs.keys():
             self.conversion_params['region_shape'] = kwargs.get('region_shape')
@@ -661,20 +663,15 @@ class EuBIBridge:
             print(f"Downscale params:")
             pprint.pprint(self.downscale_params)
 
-        ###### Start the cluster
         temp_dir = base._dask_temp_dir
         self.conversion_params['temp_dir'] = temp_dir
         self.downscale_params['temp_dir'] = temp_dir
 
-        if not verified_for_cluster:
-            self.cluster_params['no_distributed'] = True
-
-        self._start_cluster(**self.cluster_params)
         if self.client is not None:
             base.client = self.client
         base.set_dask_temp_dir(self._dask_temp_dir)
 
-        ###### Convert
+        ###### Write
         self.base_results = base.write_arrays(output_path,
                                            pixel_sizes=scales,
                                            pixel_units=units,
@@ -697,6 +694,8 @@ class EuBIBridge:
                       )
 
             print(f"Downscaling finished.")
+
+        ###### Shutdown and clean up
         if self.client is not None:
             self.client.shutdown()
             self.client.close()

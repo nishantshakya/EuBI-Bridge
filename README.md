@@ -148,9 +148,10 @@ multichannel_timeseries_nested_concat_zarr
 └── Channel_cset-T0004.zarr
 ```  
 
-### Selective Data Conversion Using Globbing  
+### Selective Data Conversion Using   
 
-To process only specific files, globbing patterns can be used. For example, to concatenate only **timepoint 3** along the channel dimension:  
+To process only specific files, wildcard patterns can be used. 
+For example, to concatenate only **timepoint 3** along the channel dimension:  
 
 ```bash
 eubi to_zarr \
@@ -168,7 +169,8 @@ multichannel_timeseries_nested_concat_zarr
 └── Channel_cset-T0003.zarr
 ```  
 
-**Note:** When using globbing, the input directory path must be enclosed in quotes as shown in the example above.  
+**Note:** When using wildcards, the input directory path must be enclosed 
+in quotes as shown in the example above.  
 
 ### Handling Categorical Dimension Patterns  
 
@@ -241,12 +243,8 @@ blueredchannels_timeseries_nested_concat_zarr
 └── BlueRed_cset-T_tset.zarr
 ```
 
-## Conclusion  
-
-EuBI-Bridge is a flexible and scalable tool for converting large microscopic image datasets to the OME-Zarr format, 
-supporting both unary and aggregative conversions.  
+## Additional Notes
 
 **Note:** EuBI-Bridge is in the **alpha stage**, and significant updates may be expected.
-
 
 

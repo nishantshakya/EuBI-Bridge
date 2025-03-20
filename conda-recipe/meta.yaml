@@ -1,6 +1,6 @@
 package:
   name: eubi-bridge
-  version: 0.0.2
+  version: 0.0.4
 
 source:
   path: ..
@@ -46,6 +46,7 @@ requirements:
     - conda-forge::bioformats_jar
     - conda-forge::readlif
     - conda-forge::czifile
+    - conda-forge::aicspylibczi
     - conda-forge::pydantic=1.9.*
     - conda-forge::tifffile=2024.8.*
 test:

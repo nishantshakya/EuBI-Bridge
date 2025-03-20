@@ -187,7 +187,13 @@ def read_single_image(input_path):
     return load_image_scene(input_path, scene_idx=None)
 
 def read_single_image_asarray(input_path):
-    return read_single_image(input_path).get_image_dask_data()
+    arr = read_single_image(input_path).get_image_dask_data()
+    if arr.ndim > 5:
+        new_shape = np.array(arr.shape)
+        new_shape[1] = (arr.shape[-1] * arr.shape[1])
+        reshaped = arr.reshape(new_shape[:-1])
+        return reshaped
+    return arr
 
 def get_image_shape(input_path, scene_idx):
     from aicsimageio import AICSImage
@@ -200,7 +206,7 @@ def _get_refined_arrays(fileset: FileSet,
                         path_separator = '-'
                         ):
     """Get concatenated arrays from the fileset in an organized way, respecting the operating system."""
-    root_path_ = root_path.split(os.sep)
+    root_path_ = os.path.normpath(root_path).split(os.sep)
     root_path_top = []
     for item in root_path_:
         if '*' in item:
@@ -208,19 +214,21 @@ def _get_refined_arrays(fileset: FileSet,
         root_path_top.append(item)
 
     if os.name == 'nt':
-        root_path = os.path.join(f"c:{os.sep}", *root_path_top)
+        # Use os.path.splitdrive to handle any drive letter
+        drive, _ = os.path.splitdrive(root_path)
+        root_path = os.path.join(drive + os.sep, *root_path_top)
     else:
         root_path = os.path.join(os.sep, *root_path_top)
+
     arrays_ = fileset.get_concatenated_arrays()
     arrays = {}
 
     for key in arrays_.keys():
-        new_key = key.replace(root_path, '')
+        new_key = os.path.relpath(key, root_path)
         new_key = os.path.splitext(new_key)[0]
-        if new_key.startswith(os.sep):
-            new_key = new_key[1:]
         new_key = new_key.replace(os.sep, path_separator)
         arrays[new_key] = arrays_[key]
+
     return arrays
 
 
@@ -424,13 +432,5 @@ def downscale(
         # print(e)
         pass
     return results
-
-
-
-
-
-
-
-
 
 

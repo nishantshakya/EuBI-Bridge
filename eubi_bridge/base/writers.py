@@ -78,14 +78,20 @@ def get_compressor(name, **params):
     compressor = compressor_class(**params)
     return compressor
 
+def get_default_fill_value(dtype):
+    if np.issubdtype(dtype, np.integer):
+        return 0
+    elif np.issubdtype(dtype, np.floating):
+        return 0.0
+    elif np.issubdtype(dtype, np.bool_):
+        return False
+    return None
 
 def write_chunk_with_zarrpy(chunk: np.ndarray, zarr_array: zarr.Array, block_info: Dict) -> None:
     zarr_array[tuple(slice(*b) for b in block_info[0]["array-location"])] = chunk
 
-
 def write_chunk_with_tensorstore(chunk: np.ndarray, ts_store, block_info: Dict) -> None:
     ts_store[tuple(slice(*b) for b in block_info[0]["array-location"])] = chunk
-
 
 def write_with_rechunker(arr: da.Array,
                          chunks: Tuple[int, ...],
@@ -93,8 +99,11 @@ def write_with_rechunker(arr: da.Array,
                          overwrite: bool = True,
                          **kwargs) -> Rechunked:
     temp_dir = kwargs.get('temp_dir')
-    assert temp_dir, "A temp_dir must be specified."
-    if temp_dir == 'auto':
+    if not temp_dir:
+        raise ValueError("A temp_dir must be specified.")
+
+    temp_dir_is_auto = temp_dir == 'auto'
+    if temp_dir_is_auto:
         temp_dir = tempfile.TemporaryDirectory()
 
     max_mem = kwargs.get('rechunkers_max_mem', "auto")
@@ -104,32 +113,40 @@ def write_with_rechunker(arr: da.Array,
     if overwrite:
         shutil.rmtree(location, ignore_errors=True)
 
-    target = zarr.DirectoryStore(location, dimension_separator='/')
+    target_store = zarr.DirectoryStore(location, dimension_separator='/')
     temp_store = zarr.DirectoryStore(temp_dir.name if isinstance(temp_dir, tempfile.TemporaryDirectory) else temp_dir,
                                      dimension_separator='/')
 
     compressor_name = kwargs.get('compressor', 'blosc')
     compressor_params = kwargs.get('compressor_params', {})
     compressor = get_compressor(compressor_name, **compressor_params)
+
     dtype = kwargs.get('dtype', arr.dtype)
     if dtype == 'auto':
-        pass
-    elif dtype == arr.dtype:
-        pass
-    else:
-        arr = arr.astype(dtype)
+        dtype = arr.dtype
 
-    return rechunk(source=arr,
-                   target_chunks=chunks,
-                   target_store=target,
-                   temp_store=temp_store,
-                   max_mem=max_mem,
-                   executor='dask',
-                   target_options={'overwrite': True,
-                                   'compressor': compressor,
-                                   # 'dtype': dtype
-                                   })
+    fill_value = kwargs.get('fill_value', get_default_fill_value(dtype))
 
+    # Use rechunker (without fill_value)
+    rechunked = rechunk(source=arr,
+                        target_chunks=chunks,
+                        target_store=target_store,
+                        temp_store=temp_store,
+                        max_mem=max_mem,
+                        executor='dask',
+                        target_options={'overwrite': True,
+                                        'compressor': compressor,
+                                        'write_empty_chunks': True})  # No fill_value here
+
+    # **Reopen Zarr array and update fill_value properly**
+    zarr_array = zarr.open_array(target_store, mode="a")  # Open in append mode
+    zarr_array.fill_value = fill_value  # Set fill_value correctly
+
+    # Cleanup temporary directory if auto-generated
+    if temp_dir_is_auto:
+        temp_dir.cleanup()
+
+    return rechunked
 
 def write_with_zarrpy(arr: da.Array,
                       chunks: Tuple[int, ...],
@@ -152,7 +169,10 @@ def write_with_zarrpy(arr: da.Array,
         dtype = kwargs.get('dtype', arr.dtype)
         if dtype == 'auto':
             dtype = arr.dtype
-        zarr_array = zarr.create(shape=arr.shape, chunks=chunks, dtype=dtype, compressor = compressor, store=store, overwrite=overwrite)
+
+        fill_value = kwargs.get('fill_value', get_default_fill_value(dtype))
+
+        zarr_array = zarr.create(shape=arr.shape, chunks=chunks, dtype=dtype, compressor = compressor, store=store, overwrite=overwrite, fill_value = fill_value)
 
     return arr.map_blocks(write_chunk_with_zarrpy, zarr_array=zarr_array, dtype=dtype)
 
@@ -173,6 +193,8 @@ def write_with_tensorstore(arr: da.Array,
     compressor_params = kwargs.get('compressor_params', {})
     compressor = dict(id = compressor_name, **compressor_params)
     dtype = kwargs.get('dtype', arr.dtype)
+    fill_value = kwargs.get('fill_value', get_default_fill_value(dtype))
+
     if dtype == 'auto':
         dtype = arr.dtype
 
@@ -187,7 +209,8 @@ def write_with_tensorstore(arr: da.Array,
             "shape": arr.shape,
             "chunks": chunks,
             "compressor": compressor,
-            "dimension_separator": "/"
+            "dimension_separator": "/",
+            "fill_value": fill_value
         },
     }
 
@@ -220,8 +243,9 @@ def write_with_dask(arr: da.Array,
         dtype = kwargs.get('dtype', arr.dtype)
         if dtype == 'auto':
             dtype = arr.dtype
+        fill_value = kwargs.get('fill_value', get_default_fill_value(dtype))
         zarr_array = zarr.create(shape=res.shape, chunks=chunks, dtype=dtype, compressor=compressor, store=store,
-                                 overwrite=overwrite)
+                                 overwrite=overwrite, fill_value = fill_value)
 
     region_shape: Tuple[int, ...] = kwargs.get('region_shape', chunks)
     regions: List[Tuple[slice, ...]] = get_regions(arr.shape, region_shape, as_slices=True)
@@ -338,3 +362,8 @@ def store_arrays(arrays: Dict[str, Dict[str, da.Array]],
     #     print(e)
         pass
     return results
+
+
+
+
+

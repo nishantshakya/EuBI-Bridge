@@ -21,7 +21,7 @@ print(f'packages are: {packages}')
 
 setuptools.setup(
     name = 'eubi_bridge',
-    version = '0.0.1',
+    version = '0.0.3',
     author = 'Bugra Özdemir',
     author_email = 'bugraa.ozdemir@gmail.com',
     description = 'A package for converting datasets to OME-Zarr format.',

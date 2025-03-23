@@ -7,11 +7,17 @@ A key feature of EuBI-Bridge is **aggregative conversion**, which concatenates m
 EuBI-Bridge is built on several powerful libraries, including `zarr`, `aicsimageio`, `dask-distributed`, and `rechunker`, among others. 
 Depending on `aicsimageio` readers, EuBI-Bridge supports multiple input formats, though testing has so far primarily focused on TIFF files.
 
+
+## Installation
+
+The easiest way to install EuBI-Bridge is 
+
+
 ## Basic Usage  
 
 ### Unary Conversion  
 
-Given a dataset structured as follows:  
+Given a dataset structured as follows: 
 
 ```bash
 multichannel_timeseries
@@ -84,7 +90,7 @@ eubi to_zarr multichannel_timeseries multichannel_timeseries_concat_zarr \
 
 Note that both axes are specified wia the argument `--concatenation_axes ct`.
 
-Output:  
+Output:
 
 ```bash
 multichannel_timeseries_concat_zarr

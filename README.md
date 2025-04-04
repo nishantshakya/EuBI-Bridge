@@ -5,13 +5,32 @@ EuBI-Bridge is a tool for distributed conversion of microscopic image collection
 A key feature of EuBI-Bridge is **aggregative conversion**, which concatenates multiple images along specified dimensions—particularly useful for handling large datasets stored as TIFF file collections.  
 
 EuBI-Bridge is built on several powerful libraries, including `zarr`, `aicsimageio`, `dask-distributed`, and `rechunker`, among others. 
-Depending on `aicsimageio` readers, EuBI-Bridge supports multiple input formats, though testing has so far primarily focused on TIFF files.
+While a variety of input file formats are supported, testing has so far primarily focused on TIFF files.
+
+
+## Installation
+
+EuBI-Bridge can be installed via pip or conda. 
+
+### Installation via pip
+
+```bash
+pip install eubi-bridge
+```
+
+### Installation via conda
+
+```bash
+conda install -c euro-bioimaging -c conda-forge eubi-bridge
+```
+
+
 
 ## Basic Usage  
 
 ### Unary Conversion  
 
-Given a dataset structured as follows:  
+Given a dataset structured as follows: 
 
 ```bash
 multichannel_timeseries
@@ -45,6 +64,12 @@ multichannel_timeseries_zarr
 └── Channel2-T0004.zarr
 ```  
 
+Use **wildcards** to specifically convert the images belonging to Channel1:
+
+```bash
+eubi to_zarr "multichannel_timeseries/Channel1*" multichannel_timeseries_channel1_zarr
+```
+
 ### Aggregative Conversion (Concatenation Along Dimensions)  
 
 To concatenate images along specific dimensions, EuBI-Bridge needs to be informed
@@ -52,7 +77,7 @@ of file patterns that specify image dimensions. For this example,
 the file pattern for the channel dimension is `Channel`, which is followed by the channel index,
 and the file pattern for the time dimension is `T`, which is followed by the time index.
 
-For concatenation along the time dimension:
+To concatenate along the **time** dimension:
 
 ```bash
 eubi to_zarr multichannel_timeseries multichannel_timeseries_concat_zarr \
@@ -73,7 +98,7 @@ multichannel_timeseries_time-concat_zarr
 of the multiple channels in the image and try to concatenate all images into a single one-channeled OME-Zarr. Therefore, 
 when an aggregative conversion is performed, all dimensions existing in the input files must be specified via their respective tags. 
 
-For multidimensional concatenation (channel + time):
+For multidimensional concatenation (**channel** + **time**):
 
 ```bash
 eubi to_zarr multichannel_timeseries multichannel_timeseries_concat_zarr \
@@ -84,7 +109,7 @@ eubi to_zarr multichannel_timeseries multichannel_timeseries_concat_zarr \
 
 Note that both axes are specified wia the argument `--concatenation_axes ct`.
 
-Output:  
+Output:
 
 ```bash
 multichannel_timeseries_concat_zarr
@@ -148,9 +173,10 @@ multichannel_timeseries_nested_concat_zarr
 └── Channel_cset-T0004.zarr
 ```  
 
-### Selective Data Conversion Using Globbing  
+### Selective Data Conversion    
 
-To process only specific files, globbing patterns can be used. For example, to concatenate only **timepoint 3** along the channel dimension:  
+To recursively select specific files for conversion, wildcard patterns can be used. 
+For example, to concatenate only **timepoint 3** along the channel dimension:  
 
 ```bash
 eubi to_zarr \
@@ -168,7 +194,8 @@ multichannel_timeseries_nested_concat_zarr
 └── Channel_cset-T0003.zarr
 ```  
 
-**Note:** When using globbing, the input directory path must be enclosed in quotes as shown in the example above.  
+**Note:** When using wildcards, the input directory path must be enclosed 
+in quotes as shown in the example above.  
 
 ### Handling Categorical Dimension Patterns  
 
@@ -241,12 +268,8 @@ blueredchannels_timeseries_nested_concat_zarr
 └── BlueRed_cset-T_tset.zarr
 ```
 
-## Conclusion  
+## Additional Notes
 
-EuBI-Bridge is a flexible and scalable tool for converting large microscopic image datasets to the OME-Zarr format, 
-supporting both unary and aggregative conversions.  
-
-**Note:** EuBI-Bridge is in the **alpha stage**, and significant updates may be expected.
-
-
+- EuBI-Bridge is in the **alpha stage**, and significant updates may be expected.
+- **Community support:** Questions and contributions are welcome! Please report any issues.
 

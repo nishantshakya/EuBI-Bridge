@@ -2,12 +2,14 @@
 default_axes = 'tczyx'
 
 unit_map = {
-    't': 'Frame',
+    't': 'second',
     'c': 'Channel',
-    'z': 'Slice',
-    'y': 'Pixel',
-    'x': 'Pixel'
+    'z': 'micrometer',
+    'y': 'micrometer',
+    'x': 'micrometer'
 }
+
+
 
 scale_factor_map = {
     't': 1,

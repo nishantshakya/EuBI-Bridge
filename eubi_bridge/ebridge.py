@@ -10,7 +10,7 @@ from typing import Union
 
 from eubi_bridge.ngff.multiscales import Pyramid
 from eubi_bridge.ngff import defaults
-from eubi_bridge.ebridge_base import BridgeBase, VoxelMeta, downscale
+from eubi_bridge.ebridge_base import BridgeBase, VoxelMeta, downscale, abbreviate_units
 
 import logging, warnings
 
@@ -184,7 +184,8 @@ class EuBIBridge:
                 rechunk_method='auto',
                 rechunkers_max_mem = "auto",
                 trim_memory=False,
-                metadata_reader = 'bfio'
+                metadata_reader = 'bfio',
+                save_omexml = True,
             ),
             downscale = dict(
                 scale_factor=(1, 1, 2, 2, 2),
@@ -276,39 +277,39 @@ class EuBIBridge:
                 params[key] = self.config[param_type][key]
         return params
 
-    def _collect_scales(self, **kwargs):
-        """
-        Retrieves pixel sizes for image dimensions.
-
-        Args:
-            **kwargs: Pixel sizes for time, channel, z, y, and x dimensions.
-
-        Returns:
-            list: Pixel sizes.
-        """
-        t = kwargs.get('time_scale', None)
-        c = kwargs.get('channel_scale', None)
-        z = kwargs.get('z_scale', None)
-        y = kwargs.get('y_scale', None)
-        x = kwargs.get('x_scale', None)
-        return [t,c,z,y,x]
-
-    def _collect_units(self, **kwargs):
-        """
-        Retrieves unit specifications for image dimensions.
-
-        Args:
-            **kwargs: Unit values for time, channel, z, y, and x dimensions.
-
-        Returns:
-            list: Unit values.
-        """
-        t = kwargs.get('time_unit', None)
-        c = kwargs.get('channel_unit', None)
-        z = kwargs.get('z_unit', None)
-        y = kwargs.get('y_unit', None)
-        x = kwargs.get('x_unit', None)
-        return [t, c, z, y, x]
+    # def _collect_scales(self, **kwargs):
+    #     """
+    #     Retrieves pixel sizes for image dimensions.
+    #
+    #     Args:
+    #         **kwargs: Pixel sizes for time, channel, z, y, and x dimensions.
+    #
+    #     Returns:
+    #         list: Pixel sizes.
+    #     """
+    #     t = kwargs.get('time_scale', None)
+    #     c = kwargs.get('channel_scale', None)
+    #     y = kwargs.get('y_scale', None)
+    #     x = kwargs.get('x_scale', None)
+    #     z = kwargs.get('z_scale', x)
+    #     return [t,c,z,y,x]
+    #
+    # def _collect_units(self, **kwargs):
+    #     """
+    #     Retrieves unit specifications for image dimensions.
+    #
+    #     Args:
+    #         **kwargs: Unit values for time, channel, z, y, and x dimensions.
+    #
+    #     Returns:
+    #         list: Unit values.
+    #     """
+    #     t = kwargs.get('time_unit', None)
+    #     c = kwargs.get('channel_unit', None)
+    #     y = kwargs.get('y_unit', None)
+    #     x = kwargs.get('x_unit', None)
+    #     z = kwargs.get('z_unit', x)
+    #     return [t, c, z, y, x]
 
     def configure_cluster(self,
                           memory_limit: str = 'default',
@@ -371,7 +372,8 @@ class EuBIBridge:
                              rechunkers_max_mem: str = 'default',
                              trim_memory: bool = 'default',
                              use_tensorstore: bool = 'default',
-                             metadata_reader: str = 'default'
+                             metadata_reader: str = 'default',
+                             save_omexml: bool = 'default'
                              ):
         """
         Updates conversion configuration settings. To update the current default value for a parameter, provide that parameter with a value other than 'default'.
@@ -385,7 +387,7 @@ class EuBIBridge:
             - rechunkers_max_mem (str, optional): Maximum memory used by the 'rechunker' tool. Needed only when the 'rechunk_method' is specified as 'rechunker'.
             - trim_memory (bool, optional): Whether to trim memory usage.
             - use_tensorstore (bool, optional): Whether to use TensorStore for writing.
-
+            - save_omexml (bool, optional): Whether to create a METADATA.ome.xml file.
         Args:
             compressor (str, optional): Compression algorithm.
             compressor_params (dict, optional): Parameters for the compressor.
@@ -395,6 +397,7 @@ class EuBIBridge:
             rechunkers_max_mem (str, optional): Maximum memory used by the 'rechunker' tool. Needed only when the 'rechunk_method' is specified as 'rechunker'.
             trim_memory (bool, optional): Whether to trim memory usage.
             use_tensorstore (bool, optional): Whether to use TensorStore for storage.
+            save_omexml (bool, optional): Whether to create a METADATA.ome.xml file.
 
         Returns:
             None
@@ -409,7 +412,8 @@ class EuBIBridge:
             'rechunkers_max_mem': rechunkers_max_mem,
             'trim_memory': trim_memory,
             'use_tensorstore': use_tensorstore,
-            'metadata_reader': metadata_reader
+            'metadata_reader': metadata_reader,
+            'save_omexml': save_omexml
         }
 
         for key in params:
@@ -555,6 +559,7 @@ class EuBIBridge:
                 y_tag: Union[str, tuple] = None,
                 x_tag: Union[str, tuple] = None,
                 concatenation_axes: Union[int, tuple, str] = None,
+                save_omexml: bool = None,
                 **kwargs
                 ):
         """
@@ -599,33 +604,15 @@ class EuBIBridge:
             else:
                 input_path_ = input_path
             paths = glob.glob(input_path_, recursive=True)
-        paths = list(filter(lambda path: (includes in path if includes is not None else True) and
+
+        paths = list(filter(lambda path: (includes in path if includes is not None else True)
+                                         and
                                          (excludes not in path if excludes is not None else True),
-                            paths))
+                            paths
+                            )
+                     )
+
         filepaths = sorted(list(filter(os.path.isfile, paths)))
-
-        if len(filepaths) == 0:
-            raise Exception(f"No files found.")
-        else:
-            sample_path = filepaths[0]
-
-        self._vmeta = VoxelMeta(sample_path, series = series,
-                                metadata_reader = self.conversion_params['metadata_reader']
-                                )
-        self._vmeta.fill_default_meta()
-
-        scales = self._collect_scales(**kwargs)
-        for idx, scale in enumerate(scales):
-            if scale is None:
-                scales[idx] = self._vmeta.scales[idx]
-
-        assert len(scales) == 5, f"Scales must be a tuple of size 5. Add 1 for non-existent dimensions."
-
-        units = self._collect_units(**kwargs)
-        for idx, unit in enumerate(units):
-            if unit is None:
-                units[idx] = self._vmeta.units[idx]
-        assert len(units) == 5, f"Units must be a tuple of size 5. Add either of the default units for non-existent dimensions: (Frame, Channel, Slice, Pixel, Pixel)."
 
         ###### Start the cluster
         verified_for_cluster = verify_filepaths_for_cluster(filepaths) ### Ensure non-bioformats conversion. If bioformats is needed, fall back on local conversion.
@@ -652,7 +639,16 @@ class EuBIBridge:
             axes_of_concatenation = concatenation_axes
             )
 
+        pixel_meta_kwargs = {'series': series,
+                             'metadata_reader': self.conversion_params['metadata_reader'],
+                             **kwargs
+                             }
+        base.compute_pixel_metadata(**pixel_meta_kwargs)
+
         verbose = self.cluster_params['verbose']
+
+        # self._start_cluster(**self.cluster_params)
+
         if 'region_shape' in kwargs.keys():
             self.conversion_params['region_shape'] = kwargs.get('region_shape')
         if verbose:
@@ -673,8 +669,8 @@ class EuBIBridge:
 
         ###### Write
         self.base_results = base.write_arrays(output_path,
-                                           pixel_sizes=scales,
-                                           pixel_units=units,
+                                           # pixel_sizes=scales, ### TODO: scaledict with paths
+                                           # pixel_units=units, ### TODO: unitdict with paths
                                            compute=True,
                                            verbose=verbose,
                                            **self.conversion_params
@@ -705,5 +701,39 @@ class EuBIBridge:
         else:
             shutil.rmtree(self._dask_temp_dir)
 
+        ###### Write OME metadata
+        if save_omexml is None:
+            save_omexml = self.conversion_params['save_omexml']
+        if save_omexml:
+            print(f"Writing OME-XML")
+            for key, vmeta in base.flatome.items():
+                # arr = base.flatarrays[key]
+                # vmeta.set_shape[base.axes, arr.shape]
+                vmeta.save_omexml(key)
+
         t1 = time.time()
         print(f"Elapsed for conversion + downscaling: {(t1 - t0) / 60} min.")
+
+
+# vmeta = VoxelMeta(f"/home/oezdemir/Desktop/TIM2025/data/example_images/pff/FtsZ2-1_GFP_KO2-1_no10G.lsm")
+
+# vmeta = VoxelMeta(f"/home/oezdemir/PycharmProjects/dask_env2/EuBI-Bridge_tests/blueredchannels_timeseries/Blue-T0002.tif")
+# vmeta.ensure_omexml_fields()
+
+# vmeta.set_shape('tz', (1, 91))
+# vmeta.set_scales('tz', (1, 1))
+#
+# essential_fields = {
+#     "physical_size_x", "physical_size_x_unit",
+#     "physical_size_y", "physical_size_y_unit",
+#     "physical_size_z", "physical_size_z_unit",
+#     "time_increment", "time_increment_unit",
+#     "size_x", "size_y", "size_z", "size_t", "size_c"
+# }
+#
+# # Ensure all essential fields are in model_fields_set
+# missing_fields = essential_fields - vmeta.pixel_meta.model_fields_set
+# vmeta.pixel_meta.model_fields_set.update(missing_fields)
+#
+# pprint.pprint(vmeta.omemeta.to_xml())
+# vmeta.pixel_meta.model_fields_set.add('physical_size_z_unit')

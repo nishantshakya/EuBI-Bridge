@@ -278,13 +278,18 @@ def store_arrays(arrays: Dict[str, Dict[str, da.Array]],
     use_tensorstore = kwargs.get('use_tensorstore', False)
     verbose = kwargs.get('verbose', False)
 
-    arrays = {k: {'0': v} if not isinstance(v, dict) else v for k, v in arrays.items()}
-    flatarrays = {os.path.join(output_path, f"{key}.zarr" if not key.endswith('zarr') else key, str(level)): arr
-                  for key, subarrays in arrays.items()
-                  for level, arr in subarrays.items()}
-    flatscales = {os.path.join(output_path, f"{key}.zarr" if not key.endswith('zarr') else key, str(level)): scale
-                  for key, subscales in scales.items()
-                  for level, scale in subscales.items()}
+    # arrays = {k: {'0': v} if not isinstance(v, dict) else v for k, v in arrays.items()}
+    # flatarrays = {os.path.join(output_path, f"{key}.zarr"
+    #               if not key.endswith('zarr') else key, str(level)): arr
+    #               for key, subarrays in arrays.items()
+    #               for level, arr in subarrays.items()}
+    # flatscales = {os.path.join(output_path, f"{key}.zarr"
+    #               if not key.endswith('zarr') else key, str(level)): scale
+    #               for key, subscales in scales.items()
+    #               for level, scale in subscales.items()}
+    flatarrays = arrays
+    flatscales = scales
+    flatunits = units
 
     if rechunk_method == 'rechunker':
         writer_func = write_with_rechunker
@@ -304,6 +309,7 @@ def store_arrays(arrays: Dict[str, Dict[str, da.Array]],
         results = {}
         for key, arr in flatarrays.items():
             flatscale = flatscales[key]
+            flatunit = flatunits[key]
             # Make sure chunk size is not larger than array shape in any dimension.
             chunks = np.minimum(output_chunks or arr.chunksize, arr.shape)
 
@@ -334,7 +340,7 @@ def store_arrays(arrays: Dict[str, Dict[str, da.Array]],
             except:
                 pass
             if not meta.has_axes:
-                meta.parse_axes(axis_order='tczyx', unit_list=units)
+                meta.parse_axes(axis_order='tczyx', unit_list=flatunit)
 
             meta.add_dataset(path=arrpath, scale=flatscale, overwrite=True)
             meta.retag(os.path.basename(dirpath))
@@ -359,7 +365,7 @@ def store_arrays(arrays: Dict[str, Dict[str, da.Array]],
         else:
             return results
     except Exception as e:
-    #     print(e)
+        print(e)
         pass
     return results
 

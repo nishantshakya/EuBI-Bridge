@@ -371,9 +371,14 @@ class FileSet:  # TODO: add a pixel_size parameter
     def get_concatenated_arrays(self):
         unique_ids = []
         unique_paths = []
+        unique_input_paths = []
         for key, path in self.path_dict.items():
             if path not in unique_paths:
+                unique_input_paths.append(key)
                 unique_paths.append(path)
                 unique_ids.append(key)
         unique_arrays = [self.array_dict[path] for path in unique_ids]
-        return dict(zip(unique_paths, unique_arrays))
+
+        return {key: [path, arr] for key, path, arr in zip(unique_input_paths, unique_paths, unique_arrays)}
+
+

@@ -365,7 +365,7 @@ def store_arrays(arrays: Dict[str, Dict[str, da.Array]],
         else:
             return results
     except Exception as e:
-        print(e)
+        # print(e)
         pass
     return results
 

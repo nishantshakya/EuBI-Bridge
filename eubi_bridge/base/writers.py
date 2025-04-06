@@ -12,10 +12,15 @@ from typing import List, Tuple, Dict, Union, Any, Tuple
 ### internal imports
 from eubi_bridge.ngff.multiscales import Multimeta
 from eubi_bridge.utils.convenience import get_chunksize_from_array, is_zarr_group
+from dask.utils import SerializableLock
 
 import logging, warnings
 
 logging.getLogger('distributed.diskutils').setLevel(logging.CRITICAL)
+
+
+# Create a global lock (can be moved to module scope if needed)
+zarr_write_lock = SerializableLock()
 
 def create_zarr_array(directory: Union[Path, str, zarr.Group],
                       array_name: str,
@@ -153,6 +158,7 @@ def write_with_zarrpy(arr: da.Array,
                       location: Union[str, Path],
                       overwrite: bool = True,
                       **kwargs) -> da.Array:
+    #from zarr import ProcessSynchronizer
     rechunk_method = kwargs.get('rechunk_method', 'tasks')
 
     if not np.equal(arr.chunksize, chunks).all():
@@ -160,6 +166,7 @@ def write_with_zarrpy(arr: da.Array,
         )
 
     store = zarr.DirectoryStore(location, dimension_separator='/')
+    #sync = ProcessSynchronizer(location + ".sync")
     try:
         zarr_array = zarr.open_array(location, mode='w')
     except:
@@ -172,7 +179,7 @@ def write_with_zarrpy(arr: da.Array,
 
         fill_value = kwargs.get('fill_value', get_default_fill_value(dtype))
 
-        zarr_array = zarr.create(shape=arr.shape, chunks=chunks, dtype=dtype, compressor = compressor, store=store, overwrite=overwrite, fill_value = fill_value)
+        zarr_array = zarr.create(shape=arr.shape, chunks=chunks, dtype=dtype, compressor = compressor, store=store, overwrite=overwrite, fill_value = fill_value)#, synchronizer = sync)
 
     return arr.map_blocks(write_chunk_with_zarrpy, zarr_array=zarr_array, dtype=dtype)
 
@@ -361,15 +368,10 @@ def store_arrays(arrays: Dict[str, Dict[str, da.Array]],
                 for result in results.values():
                     result.execute()
             else:
-                dask.compute(list(results.values()))
+                dask.compute(list(results.values()), retries = 6)
         else:
             return results
     except Exception as e:
         # print(e)
         pass
     return results
-
-
-
-
-

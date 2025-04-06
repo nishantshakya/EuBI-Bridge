@@ -1,6 +1,6 @@
 package:
   name: eubi-bridge
-  version: 0.0.4
+  version: 0.0.5b
 
 source:
   path: ..

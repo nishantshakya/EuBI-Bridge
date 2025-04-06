@@ -12,15 +12,11 @@ from typing import List, Tuple, Dict, Union, Any, Tuple
 ### internal imports
 from eubi_bridge.ngff.multiscales import Multimeta
 from eubi_bridge.utils.convenience import get_chunksize_from_array, is_zarr_group
-from dask.utils import SerializableLock
 
 import logging, warnings
 
 logging.getLogger('distributed.diskutils').setLevel(logging.CRITICAL)
 
-
-# Create a global lock (can be moved to module scope if needed)
-zarr_write_lock = SerializableLock()
 
 def create_zarr_array(directory: Union[Path, str, zarr.Group],
                       array_name: str,

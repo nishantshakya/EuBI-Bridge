@@ -6,6 +6,9 @@ import dask.array as da, numpy as np, dask
 from collections import Counter
 from typing import Iterable, Callable, Union, List, Tuple
 from natsort import natsorted
+from collections import defaultdict
+from itertools import zip_longest
+
 
 from eubi_bridge.ngff import defaults
 
@@ -76,62 +79,54 @@ def accumulate_slices_along_axis(shapes: Iterable,
     return slices
 
 
-def _reduce_paths(paths: Iterable[str],
-                  dimension_tag,
-                  reduced_paths: Iterable[str] = None,
-                  replacement='set',
-                  ):
-    # replacement = dimension_tag.replace(',', '') + f'{replace_with}'
-    # print(dimension_tag, replacement)
-    if reduced_paths is None:
-        reduced_paths = copy.deepcopy(paths)
-    matches = get_matches(f'{dimension_tag}\d+', paths, return_non_matches=True)
-    if all(item is None for item in matches):
-        matches = get_matches(dimension_tag, paths, return_non_matches=True)
-    for idx, match in enumerate(matches):
-        if match is None:
-            pass
-        else:
-            span = match.string[match.start():match.end()]
-            string = match.string.replace(span, replacement)
-            reduced_paths[idx] = string
-    return reduced_paths
+def reduce_paths_flexible(paths: Iterable[str],
+                          dimension_tag: Union[str, tuple, list],
+                          replace_with: str = 'set') -> str:
+    """
+    Reduces a list of similar paths by merging over the specified dimension.
 
+    - If `dimension_tag` is a string (e.g., 'T' or 'Channel'), it's assumed to be followed by digits;
+      the digits are replaced with `replace_with`.
+    - If `dimension_tag` is a tuple/list (e.g., ('blue', 'red')), those are treated as categorical tokens
+      and replaced with their joined value plus `replace_with`.
+    """
+    paths = list(paths)
+    if not paths:
+        return ""
 
-def _reduce_paths_with_tuple(paths: Iterable[str],
-                             dimension_tag: Union[tuple, list],
-                             replacement='set'
-                             ):
-    assert isinstance(dimension_tag, (tuple, list))
-    combined_pattern = "".join(dimension_tag) + replacement
-    pattern_regex = r'(' + '|'.join(map(re.escape, dimension_tag)) + r')'
-    reduced_paths = []
-    for path in paths:
-        if re.search(pattern_regex, path):
-            reduced_paths.append(re.sub(pattern_regex, combined_pattern, path))
-        else:
-            reduced_paths.append(path)
-    return reduced_paths
-
-
-def reduce_paths(paths: Iterable[str],
-                 dimension_tag: Union[tuple, str],
-                 reduced_paths: Iterable[str] = None,
-                 replace_with: str = 'set'
-                 ) -> List[str]:
     if isinstance(dimension_tag, str):
-        replacement = dimension_tag.replace(',', '') + f'{replace_with}'
-        return _reduce_paths(paths, dimension_tag, reduced_paths, replacement)
+        # Match like 'T0001', 'Channel2', etc.
+        pattern = re.compile(rf'({re.escape(dimension_tag)})(\d+)')
+        def replace_tag(path):
+            return pattern.sub(lambda m: m.group(1) + replace_with, path)
+
     elif isinstance(dimension_tag, (tuple, list)):
-        return _reduce_paths_with_tuple(paths, dimension_tag, replace_with)
+        # Categorical case: match only if surrounded by boundaries like /, _, -, ., or start/end of string
+        unique_vals = sorted(set(dimension_tag))
+        joined_val = ''.join(unique_vals) + replace_with
 
+        # Example: match (^|/|_|-|.)blue(?=$|/|_|-|.)
+        pattern = re.compile(
+            rf'(?:(?<=^)|(?<=[/_\-.]))({"|".join(map(re.escape, unique_vals))})(?=$|[\/_\-.])'
+        )
 
-# def array_concatenate(arrays, axis=0):
-#     """Efficiently concatenate Dask arrays using map_blocks."""
-#     arrays = [da.asarray(arr) for arr in arrays]  # Ensure inputs are Dask arrays
-#     return da.map_blocks(
-#         da.concatenate, arrays, axis=axis, dtype=arrays[0].dtype
-#     )
+        def replace_tag(path):
+            return pattern.sub(joined_val, path)
+
+    else:
+        raise ValueError("dimension_tag must be a string or a tuple/list of strings")
+
+    # Apply replacement
+    replaced_paths = [replace_tag(p) for p in paths]
+
+    # Now combine all paths token-wise
+    tokenized = [re.split(r'([/_\-.])', p) for p in replaced_paths]
+    merged_tokens = []
+    for tokens in zip(*tokenized):
+        uniq = list(dict.fromkeys(tokens))  # preserve order
+        merged_tokens.append(''.join(uniq))
+
+    return ''.join(merged_tokens)
 
 
 class FileSet:  # TODO: add a pixel_size parameter
@@ -286,9 +281,17 @@ class FileSet:  # TODO: add a pixel_size parameter
             new_slices = accumulate_slices_along_axis(group_shapes, axis, group_slices)
             new_shape = concatenate_shapes_along_axis(group_shapes, axis)
             # ax_str = self._axis_as_str(axis)
-            new_reduced_paths = reduce_paths(group_reduced_paths, dimension_tag,
-                                             group_reduced_paths,
-                                             f'_{ax_dict[axis]}set')
+            p = reduce_paths_flexible(group_reduced_paths,
+                                     dimension_tag,
+                                     # group_reduced_paths,
+                                     f'_{ax_dict[axis]}set'
+                                    )
+            new_reduced_paths = [p] * len(group_reduced_paths)
+            # new_reduced_paths = reduce_paths(group_reduced_paths,
+            #                                  dimension_tag,
+            #                                  # group_reduced_paths,
+            #                                  # f'_{ax_dict[axis]}set'
+            #                                  )
 
             if self.array_dict is not None:
                 group_arrays = [self.array_dict[path] for path in sorted_paths]
@@ -371,9 +374,12 @@ class FileSet:  # TODO: add a pixel_size parameter
     def get_concatenated_arrays(self):
         unique_ids = []
         unique_paths = []
+        unique_input_paths = []
         for key, path in self.path_dict.items():
             if path not in unique_paths:
+                unique_input_paths.append(key)
                 unique_paths.append(path)
                 unique_ids.append(key)
         unique_arrays = [self.array_dict[path] for path in unique_ids]
-        return dict(zip(unique_paths, unique_arrays))
+
+        return {key: [path, arr] for key, path, arr in zip(unique_input_paths, unique_paths, unique_arrays)}

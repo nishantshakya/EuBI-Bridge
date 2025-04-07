@@ -10,13 +10,7 @@ While a variety of input file formats are supported, testing has so far primaril
 
 ## Installation
 
-EuBI-Bridge can be installed via pip or conda. 
-
-### Installation via pip
-
-```bash
-pip install eubi-bridge
-```
+EuBI-Bridge can be installed via conda.
 
 ### Installation via conda
 
@@ -272,4 +266,5 @@ blueredchannels_timeseries_nested_concat_zarr
 
 - EuBI-Bridge is in the **alpha stage**, and significant updates may be expected.
 - **Community support:** Questions and contributions are welcome! Please report any issues.
+
 

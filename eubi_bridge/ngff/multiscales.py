@@ -119,7 +119,7 @@ class Multimeta:
                 raise ValueError(f'{name} axis already exists.')
 
         def axmake(name, unit):
-            if unit is None:
+            if unit is None or name == 'c':
                 axis = {'name': name, 'type': defaults.type_map[name]}
             else:
                 axis = {'name': name, 'type': defaults.type_map[name], 'unit': unit}
@@ -148,6 +148,7 @@ class Multimeta:
             unit_list = [None] * len(axis_order)
         elif unit_list == 'default':
             unit_list = [defaults.unit_map[i] for i in axis_order]
+
         assert len(axis_order) == len(unit_list), 'Unit list and axis order must have the same length.'
         for i, n in enumerate(axis_order):
             self._add_axis(name = n,
@@ -230,6 +231,8 @@ class Multimeta:
                   ):
         if isinstance(scale, tuple):
             scale = list(scale)
+            ch_index = self.axes.index('c')
+            scale[ch_index] = 1
         elif hasattr(scale, 'tolist'):
             scale = scale.tolist()
         if pth == 'auto':

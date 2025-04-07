@@ -10,7 +10,7 @@ While a variety of input file formats are supported, testing has so far primaril
 
 ## Installation
 
-EuBI-Bridge can be installed via pip or conda.
+EuBI-Bridge can be installed via conda.
 
 ### Installation via conda
 

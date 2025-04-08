@@ -53,5 +53,3 @@ test:
   commands:
     - eubi --help  # Verify CLI is working
 
-
-

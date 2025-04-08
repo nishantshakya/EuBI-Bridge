@@ -18,6 +18,7 @@ EuBI-Bridge can be installed via conda.
 conda install -c euro-bioimaging -c conda-forge eubi-bridge
 ```
 
+**Important: EuBI-Bridge is currently only compatible with Python 3.10 due to conflicting dependencies. We are working on supporting a wider range of Python versions in future releases.**
 
 
 ## Basic Usage  

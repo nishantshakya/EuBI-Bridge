@@ -1,6 +1,6 @@
 # EuBI-Bridge  
 
-[![Documentation](https://img.shields.io/badge/docs-view-blue)](https://euro-bioimaging.github.io/EuBI-Bridge/)
+[![Documentation](https://img.shields.io/badge/documentation-online-green)](https://euro-bioimaging.github.io/EuBI-Bridge/)
 
 EuBI-Bridge is a tool for distributed conversion of microscopic image collections into the OME-Zarr (v0.4) format. It can be used from the command line or as part of a Python script, making it easy to integrate into existing workflows.  
 

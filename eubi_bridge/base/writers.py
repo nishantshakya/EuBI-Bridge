@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import List, Tuple, Dict, Union, Any, Tuple
 ### internal imports
 from eubi_bridge.ngff.multiscales import Multimeta
-from eubi_bridge.utils.convenience import get_chunksize_from_array, is_zarr_group
+from eubi_bridge.utils.convenience import get_chunksize_from_array, is_zarr_group #, retry_decorator
 
 import logging, warnings
 
@@ -268,10 +268,17 @@ def write_with_dask(arr: da.Array,
 def count_threads():
     return threading.active_count()
 
-def store_arrays(arrays: Dict[str, Dict[str, da.Array]],
+def _get_or_create_multimeta(gr, axis_order, unit_list):
+    meta = Multimeta()
+    meta.from_ngff(gr)
+    if not meta.has_axes:
+        meta.parse_axes(axis_order=axis_order, unit_list=unit_list)
+    return meta
+
+def store_arrays(arrays: Dict[str, Dict[str, da.Array]], # flatarrays
                  output_path: Union[Path, str],
-                 scales: Dict[str, Dict[str, Tuple[float, ...]]],
-                 units: list,
+                 scales: Dict[str, Dict[str, Tuple[float, ...]]], # flatscales
+                 units: list, # flatunits
                  output_chunks: Tuple[int, ...] = None,
                  compute: bool = False,
                  overwrite: bool = False,
@@ -280,19 +287,6 @@ def store_arrays(arrays: Dict[str, Dict[str, da.Array]],
     rechunk_method = kwargs.get('rechunk_method', 'tasks')
     use_tensorstore = kwargs.get('use_tensorstore', False)
     verbose = kwargs.get('verbose', False)
-
-    # arrays = {k: {'0': v} if not isinstance(v, dict) else v for k, v in arrays.items()}
-    # flatarrays = {os.path.join(output_path, f"{key}.zarr"
-    #               if not key.endswith('zarr') else key, str(level)): arr
-    #               for key, subarrays in arrays.items()
-    #               for level, arr in subarrays.items()}
-    # flatscales = {os.path.join(output_path, f"{key}.zarr"
-    #               if not key.endswith('zarr') else key, str(level)): scale
-    #               for key, subscales in scales.items()
-    #               for level, scale in subscales.items()}
-    flatarrays = arrays
-    flatscales = scales
-    flatunits = units
 
     if rechunk_method == 'rechunker':
         writer_func = write_with_rechunker
@@ -307,67 +301,66 @@ def store_arrays(arrays: Dict[str, Dict[str, da.Array]],
     else:
         writer_func = write_with_tensorstore if use_tensorstore else write_with_zarrpy
 
-    try:
-        zarr.group(output_path, overwrite=overwrite)
-        results = {}
-        for key, arr in flatarrays.items():
-            flatscale = flatscales[key]
-            flatunit = flatunits[key]
-            # Make sure chunk size is not larger than array shape in any dimension.
-            chunks = np.minimum(output_chunks or arr.chunksize, arr.shape)
+    zarr.group(output_path, overwrite=overwrite)
+    results = {}
+    for key, arr in arrays.items():
+        flatscale = scales[key]
+        flatunit = units[key]
+        # Make sure chunk size is not larger than array shape in any dimension.
+        chunks = np.minimum(output_chunks or arr.chunksize, arr.shape)
 
-            if rechunk_method in (None, 'auto'):
-                if np.all(np.less_equal(chunks, arr.chunksize)):
-                    rechunk_method = 'rechunker'
-                    kwargs['rechunk_method'] = rechunk_method
-                    writer_func = write_with_rechunker
-                    if use_tensorstore:
-                        raise NotImplementedError("The rechunker method cannot be used with tensorstore.")
-                    if 'region_shape' in kwargs:
-                        raise NotImplementedError("The rechunker method is not compatible with region-based writing.")
-                else:
-                    kwargs['rechunk_method'] = 'tasks'
+        if rechunk_method in (None, 'auto'):
+            if np.all(np.less_equal(chunks, arr.chunksize)):
+                rechunk_method = 'rechunker'
+                kwargs['rechunk_method'] = rechunk_method
+                writer_func = write_with_rechunker
+                # print(writer_func)
+                # print(use_tensorstore)
+                if use_tensorstore:
+                    raise NotImplementedError("The rechunker method cannot be used with tensorstore.")
+                if 'region_shape' in kwargs:
+                    raise NotImplementedError("The rechunker method is not compatible with region-based writing.")
+            else:
+                kwargs['rechunk_method'] = 'tasks'
 
-            if rechunk_method != 'rechunker':
-                if 'temp_dir' in kwargs:
-                    kwargs.pop('temp_dir')
+        if rechunk_method != 'rechunker':
+            if 'temp_dir' in kwargs:
+                kwargs.pop('temp_dir')
 
-            dirpath = os.path.dirname(key)
-            arrpath = os.path.basename(key)
+        dirpath = os.path.dirname(key)
+        arrpath = os.path.basename(key)
 
-            gr = zarr.open_group(dirpath, mode='a') if is_zarr_group(dirpath) else zarr.group(dirpath, overwrite=overwrite)
+        if is_zarr_group(dirpath):
+            gr = zarr.open_group(dirpath, mode='a')
+        else:
+            gr = zarr.group(dirpath, overwrite=overwrite)
 
-            meta = Multimeta()
-            try:
-                meta.from_ngff(gr)
-            except:
-                pass
-            if not meta.has_axes:
-                meta.parse_axes(axis_order='tczyx', unit_list=flatunit)
+        meta = _get_or_create_multimeta(gr, axis_order='tczyx', unit_list=flatunit)
 
-            meta.add_dataset(path=arrpath, scale=flatscale, overwrite=True)
-            meta.retag(os.path.basename(dirpath))
-            meta.to_ngff(gr)
+        meta.add_dataset(path=arrpath, scale=flatscale, overwrite=True)
+        meta.retag(os.path.basename(dirpath))
+        meta.to_ngff(gr)
 
-            if verbose:
-                print(f"Writer function: {writer_func}")
-                print(f"Rechunk method: {rechunk_method}")
-            results[key] = writer_func(arr=arr,
-                                       chunks=chunks,
-                                       location=key, # compressor = compressor, dtype = dtype,
-                                       overwrite=overwrite,
-                                       **kwargs
-                                       )
+        if verbose:
+            print(f"Writer function: {writer_func}")
+            print(f"Rechunk method: {rechunk_method}")
+        results[key] = writer_func(arr=arr,
+                                   chunks=chunks,
+                                   location=key, # compressor = compressor, dtype = dtype,
+                                   overwrite=overwrite,
+                                   **kwargs
+                                   )
 
-        if compute:
+    if compute:
+        try:
             if rechunk_method == 'rechunker':
                 for result in results.values():
                     result.execute()
             else:
                 dask.compute(list(results.values()), retries = 6)
-        else:
-            return results
-    except Exception as e:
-        # print(e)
-        pass
+        except:
+            print(e)
+            pass
+    else:
+        return results
     return results

@@ -3,6 +3,7 @@ natsort
 dask<=2024.7.0
 distributed<=2024.7.0
 zarr<=2.18.3
+scipy>=1.8
 matplotlib
 dask-jobqueue
 #s3fs

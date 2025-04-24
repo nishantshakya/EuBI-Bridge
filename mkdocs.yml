@@ -1,0 +1,70 @@
+
+site_name: EuBI-Bridge
+repo_url: https://github.com/Euro-BioImaging/EuBI-Bridge
+
+theme:
+  name: readthedocs
+#  custom_dir: docs/overrides
+#  logo: figures/logo.png
+#  code:
+#    highlighting: true
+#    light: github
+  palette:
+    - scheme: slate
+      primary: deep orange
+      accent: teal
+#    - scheme: slate
+#      primary: deep orange
+#      accent: teal
+#      toggle:
+#        icon: material/weather-night
+#        name: Switch to dark mode
+#  font:
+#    text: Roboto
+#    code: JetBrains Mono
+#  features:
+#    - navigation.tabs
+#    - navigation.top
+#    - navigation.expand
+#    - toc.integrate
+#    - content.code.copy
+#    - content.code.select
+#    - search.highlight
+#    - header.autohide
+
+markdown_extensions:
+#  - admonition
+#  - toc:
+#      permalink: true
+#  - codehilite:
+#      guess_lang: false
+#      linenums: true
+#  - pymdownx.highlight:
+#      linenums: true
+#      anchor_linenums: true
+  - pymdownx.inlinehilite
+#  - pymdownx.superfences
+  - pymdownx.snippets
+
+nav:
+  - Home: index.md
+  - CLI Usage: cli.md
+  - Conversion Tutorial: conversion_tutorial.md
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [eubi_bridge]
+
+extra_javascript:
+  - js/copy-button.js
+#  - js/add-footer-logo.js
+#  - js/show-site-name.js
+
+extra_css:
+#  - css/copy-button.css
+  - css/custom.css
+

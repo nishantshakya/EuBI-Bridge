@@ -1,6 +1,6 @@
 package:
   name: eubi-bridge
-  version: 0.0.5b1
+  version: 0.0.5b2
 
 source:
   path: ..
@@ -35,6 +35,7 @@ requirements:
     - conda-forge::zarr<=2.18.3
     - conda-forge::matplotlib
     - conda-forge::dask-jobqueue
+    - scipy>=1.8
     - conda-forge::s3fs
     - conda-forge::fire
     - conda-forge::rechunker

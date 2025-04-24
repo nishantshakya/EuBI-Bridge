@@ -21,7 +21,7 @@ print(f'packages are: {packages}')
 
 setuptools.setup(
     name = 'eubi_bridge',
-    version = '0.0.5b1',
+    version = '0.0.5b2',
     author = 'Bugra Özdemir',
     author_email = 'bugraa.ozdemir@gmail.com',
     description = 'A package for converting datasets to OME-Zarr format.',
@@ -33,7 +33,7 @@ setuptools.setup(
     include_package_data=True,
     install_requires = requirements,
     entry_points={'console_scripts': [
-                "eubi = eubi_bridge.cmd:eubibridge_cmd"
+                "eubi = eubi_bridge.cli:main"
             ]
         }
     )

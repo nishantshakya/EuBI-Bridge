@@ -1,4 +1,4 @@
-[![Docs](https://img.shields.io/badge/docs-view-blue)](https://euro-bioimaging.github.io/EuBI-Bridge/)
+[![Documentation](https://img.shields.io/badge/docs-view-blue)](https://euro-bioimaging.github.io/EuBI-Bridge/)
 
 # EuBI-Bridge  
 

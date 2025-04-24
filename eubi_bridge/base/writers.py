@@ -359,7 +359,7 @@ def store_arrays(arrays: Dict[str, Dict[str, da.Array]], # flatarrays
             else:
                 dask.compute(list(results.values()), retries = 6)
         except:
-            print(e)
+            # print(e)
             pass
     else:
         return results

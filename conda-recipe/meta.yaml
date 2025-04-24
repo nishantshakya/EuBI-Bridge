@@ -11,7 +11,7 @@ build:
   script:
     - "{{ PYTHON }} -m pip install . --no-deps --ignore-installed --no-cache-dir"
   entry_points:
-    - eubi = eubi_bridge.cmd:eubibridge_cmd
+    - eubi = eubi_bridge.cli:main
 
 requirements:
   build:

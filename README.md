@@ -1,6 +1,6 @@
-[![Documentation](https://img.shields.io/badge/docs-view-blue)](https://euro-bioimaging.github.io/EuBI-Bridge/)
-
 # EuBI-Bridge  
+
+[![Documentation](https://img.shields.io/badge/docs-view-blue)](https://euro-bioimaging.github.io/EuBI-Bridge/)
 
 EuBI-Bridge is a tool for distributed conversion of microscopic image collections into the OME-Zarr (v0.4) format. It can be used from the command line or as part of a Python script, making it easy to integrate into existing workflows.  
 
@@ -22,6 +22,9 @@ conda install -c euro-bioimaging -c conda-forge eubi-bridge
 
 **Important: EuBI-Bridge is currently only compatible with Python 3.10 due to conflicting dependencies. We are working on supporting a wider range of Python versions in future releases.**
 
+## Documentation
+
+Find the documentation for EuBI-Bridge [here](https://euro-bioimaging.github.io/EuBI-Bridge/)
 
 ## Basic Usage  
 

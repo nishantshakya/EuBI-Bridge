@@ -1,32 +1,9 @@
-# EuBI-Bridge  
+# Tutorial
 
-[![Documentation](https://img.shields.io/badge/documentation-online-green)](https://euro-bioimaging.github.io/EuBI-Bridge/)
+Welcome to the EuBI-Bridge conversion tutorial. Here we demonstrate how to convert batches
+of image datasets to OME-Zarr using the EuBI-Bridge CLI. 
 
-EuBI-Bridge is a tool for distributed conversion of microscopic image collections into the OME-Zarr (v0.4) format. It can be used from the command line or as part of a Python script, making it easy to integrate into existing workflows.  
-
-A key feature of EuBI-Bridge is **aggregative conversion**, which concatenates multiple images along specified dimensions—particularly useful for handling large datasets stored as TIFF file collections.  
-
-EuBI-Bridge is built on several powerful libraries, including `zarr`, `aicsimageio`, `dask-distributed`, and `rechunker`, among others. 
-While a variety of input file formats are supported, testing has so far primarily focused on TIFF files.
-
-
-## Installation
-
-EuBI-Bridge can be installed via conda.
-
-### Installation via conda
-
-```bash
-conda install -c euro-bioimaging -c conda-forge eubi-bridge
-```
-
-**Important: EuBI-Bridge is currently only compatible with Python 3.10 due to conflicting dependencies. We are working on supporting a wider range of Python versions in future releases.**
-
-## Documentation
-
-Find the documentation for EuBI-Bridge [here](https://euro-bioimaging.github.io/EuBI-Bridge/)
-
-## Basic Usage  
+EuBI-Bridge supports two different conversion modes: **unary** (one-to-one) and **aggregative** (multiple-to-one) conversion. Unary conversion converts each input file to a single OME-Zarr container, whereas aggregative conversion concatenates input images along specified dimensions. Below we explain each of these modes with examples.
 
 ### Unary Conversion  
 
@@ -70,6 +47,15 @@ Use **wildcards** to specifically convert the images belonging to Channel1:
 eubi to_zarr "multichannel_timeseries/Channel1*" multichannel_timeseries_channel1_zarr
 ```
 
+This produces:
+
+```bash
+multichannel_timeseries_zarr
+├── Channel1-T0001.zarr
+├── Channel1-T0002.zarr
+├── Channel1-T0003.zarr
+└── Channel1-T0004.zarr
+```
 ### Aggregative Conversion (Concatenation Along Dimensions)  
 
 To concatenate images along specific dimensions, EuBI-Bridge needs to be informed
@@ -80,10 +66,7 @@ and the file pattern for the time dimension is `T`, which is followed by the tim
 To concatenate along the **time** dimension:
 
 ```bash
-eubi to_zarr multichannel_timeseries multichannel_timeseries_concat_zarr \
---channel_tag Channel \
---time_tag T \
---concatenation_axes t
+eubi to_zarr multichannel_timeseries multichannel_timeseries_concat_zarr --channel_tag Channel --time_tag T --concatenation_axes t
 ```  
 
 Output:  
@@ -101,13 +84,10 @@ when an aggregative conversion is performed, all dimensions existing in the inpu
 For multidimensional concatenation (**channel** + **time**):
 
 ```bash
-eubi to_zarr multichannel_timeseries multichannel_timeseries_concat_zarr \
---channel_tag Channel \
---time_tag T \
---concatenation_axes ct
+eubi to_zarr multichannel_timeseries multichannel_timeseries_concat_zarr --channel_tag Channel --time_tag T --concatenation_axes ct
 ```  
 
-Note that both axes are specified wia the argument `--concatenation_axes ct`.
+Note that both axes are specified via the argument `--concatenation_axes ct`.
 
 Output:
 
@@ -137,12 +117,7 @@ multichannel_timeseries_nested
 EuBI-Bridge automatically detects the nested structure. To concatenate along both channel and time dimensions:  
 
 ```bash
-eubi to_zarr \
-multichannel_timeseries_nested \
-multichannel_timeseries_nested_concat_zarr \
---channel_tag Channel \
---time_tag T \
---concatenation_axes ct
+eubi to_zarr multichannel_timeseries_nested multichannel_timeseries_nested_concat_zarr --channel_tag Channel --time_tag T --concatenation_axes ct
 ```  
 
 Output:  
@@ -155,12 +130,7 @@ multichannel_timeseries_nested_concat_zarr
 To concatenate along the channel dimension only:  
 
 ```bash
-eubi to_zarr \
-multichannel_timeseries_nested \
-multichannel_timeseries_nested_concat_zarr \
---channel_tag Channel \
---time_tag T \
---concatenation_axes c
+eubi to_zarr multichannel_timeseries_nested multichannel_timeseries_nested_concat_zarr --channel_tag Channel --time_tag T --concatenation_axes c
 ```  
 
 Output:  
@@ -179,12 +149,7 @@ To recursively select specific files for conversion, wildcard patterns can be us
 For example, to concatenate only **timepoint 3** along the channel dimension:  
 
 ```bash
-eubi to_zarr \
-"multichannel_timeseries_nested/**/*T0003*" \
-multichannel_timeseries_nested_concat_zarr \
---channel_tag Channel \
---time_tag T \
---concatenation_axes c
+eubi to_zarr "multichannel_timeseries_nested/**/*T0003*" multichannel_timeseries_nested_concat_zarr --channel_tag Channel --time_tag T --concatenation_axes c
 ```  
 
 Output:  
@@ -216,12 +181,7 @@ blueredchannel_timeseries
 Specify categorical names as a comma-separated list:  
 
 ```bash
-eubi to_zarr \
-blueredchannels_timeseries \
-blueredchannels_timeseries_concat_zarr \
---channel_tag Blue,Red \
---time_tag T \
---concatenation_axes ct
+eubi to_zarr blueredchannels_timeseries blueredchannels_timeseries_concat_zarr --channel_tag Blue,Red --time_tag T --concatenation_axes ct
 ```  
 
 Output:  
@@ -242,23 +202,19 @@ blueredchannels_timeseries_nested
 │   ├── T0001.tif
 │   ├── T0002.tif
 │   ├── T0003.tif
-│   └── T0004.tif
-└── Red
-    ├── T0001.tif
-    ├── T0002.tif
-    ├── T0003.tif
-    └── T0004.tif
+│   ├── T0004.tif
+├── Red
+│   ├── T0001.tif
+│   ├── T0002.tif
+│   ├── T0003.tif
+│   ├── T0004.tif
 ```  
+
 
 One can run the exact same command:
 
 ```bash
-eubi to_zarr \
-blueredchannels_timeseries_nested \
-blueredchannels_timeseries_nested_concat_zarr \
---channel_tag Blue,Red \
---time_tag T \
---concatenation_axes ct
+eubi to_zarr blueredchannels_timeseries_nested blueredchannels_timeseries_nested_concat_zarr --channel_tag Blue,Red --time_tag T --concatenation_axes ct
 ```  
 
 Output:  
@@ -267,10 +223,5 @@ Output:
 blueredchannels_timeseries_nested_concat_zarr
 └── BlueRed_cset-T_tset.zarr
 ```
-
-## Additional Notes
-
-- EuBI-Bridge is in the **alpha stage**, and significant updates may be expected.
-- **Community support:** Questions and contributions are welcome! Please report any issues.
 
 

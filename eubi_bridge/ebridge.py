@@ -277,40 +277,6 @@ class EuBIBridge:
                 params[key] = self.config[param_type][key]
         return params
 
-    # def _collect_scales(self, **kwargs):
-    #     """
-    #     Retrieves pixel sizes for image dimensions.
-    #
-    #     Args:
-    #         **kwargs: Pixel sizes for time, channel, z, y, and x dimensions.
-    #
-    #     Returns:
-    #         list: Pixel sizes.
-    #     """
-    #     t = kwargs.get('time_scale', None)
-    #     c = kwargs.get('channel_scale', None)
-    #     y = kwargs.get('y_scale', None)
-    #     x = kwargs.get('x_scale', None)
-    #     z = kwargs.get('z_scale', x)
-    #     return [t,c,z,y,x]
-    #
-    # def _collect_units(self, **kwargs):
-    #     """
-    #     Retrieves unit specifications for image dimensions.
-    #
-    #     Args:
-    #         **kwargs: Unit values for time, channel, z, y, and x dimensions.
-    #
-    #     Returns:
-    #         list: Unit values.
-    #     """
-    #     t = kwargs.get('time_unit', None)
-    #     c = kwargs.get('channel_unit', None)
-    #     y = kwargs.get('y_unit', None)
-    #     x = kwargs.get('x_unit', None)
-    #     z = kwargs.get('z_unit', x)
-    #     return [t, c, z, y, x]
-
     def configure_cluster(self,
                           memory_limit: str = 'default',
                           n_jobs: int = 'default',

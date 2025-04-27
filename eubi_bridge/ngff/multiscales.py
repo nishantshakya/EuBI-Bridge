@@ -30,14 +30,14 @@ class Multimeta:
     def from_ngff(self,
                   store: (zarr.Group, zarr.storage.Store, Path, str)
                   ):
-        try:
-            if isinstance(store, zarr.Group):
-                self.gr = store
-            else:
-                self.gr = zarr.open_group(store, mode = 'a')
+        if isinstance(store, zarr.Group):
+            self.gr = store
+        else:
+            self.gr = zarr.open_group(store, mode = 'a')
+        if 'multiscales' in self.gr.attrs.keys():
             self.multimeta = self.gr.attrs['multiscales']
-        except:
-            raise Exception(f"The given store does not contain multiscales metadata.")
+        # else:
+        #     print(f"The given store does not contain multiscales metadata.")
         return self
 
     def to_ngff(self,
@@ -340,7 +340,6 @@ class Multimeta:
             return meta
         else:
             return None
-
 
 
 class Pyramid:

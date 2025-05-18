@@ -769,13 +769,13 @@ class EuBIBridge:
             base.client = self.client
         base.set_dask_temp_dir(self._dask_temp_dir)
 
-        ### apply extra options
-        if pixel_meta_kwargs['squeeze']:
-            base.squeeze_dataset()
-
-        if pixel_meta_kwargs['dimension_order'] is not None:
-            base.transpose_dataset(pixel_meta_kwargs['dimension_order'])
-        ###
+        # ### apply extra options
+        # if pixel_meta_kwargs['squeeze']:
+        #     base.squeeze_dataset()
+        #
+        # if pixel_meta_kwargs['dimension_order'] is not None:
+        #     base.transpose_dataset(pixel_meta_kwargs['dimension_order'])
+        # ###
 
         printables = {}
         for path, manager in base.batchdata.managers.items():

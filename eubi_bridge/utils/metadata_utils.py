@@ -7,7 +7,6 @@ def get_printables(
                    unitdict: dict
                    ):
     dimensions = [dim for dim in axes if dim in scaledict.keys()]
-    print(dimensions)
 
     rows = [("Dimension", "Size (pixels)", "Scale", "Unit")]
     for i, dim in enumerate(dimensions):

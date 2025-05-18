@@ -4,7 +4,9 @@ from dask import delayed
 import rechunker
 from rechunker import rechunk, Rechunked
 import dask.array as da
+# from dask.diagnostics import ProgressBar
 import numpy as np
+# import tensorstore as ts
 from pathlib import Path
 from typing import List, Tuple, Dict, Union, Any, Tuple
 ### internal imports
@@ -137,7 +139,7 @@ def write_with_rechunker(arr: da.Array,
                                         'compressor': compressor,
                                         'write_empty_chunks': True})  # No fill_value here
 
-    # Reopen Zarr array and update fill_value properly
+    # **Reopen Zarr array and update fill_value properly**
     zarr_array = zarr.open_array(target_store, mode="a")  # Open in append mode
     zarr_array.fill_value = fill_value  # Set fill_value correctly
 
@@ -152,6 +154,7 @@ def write_with_zarrpy(arr: da.Array,
                       location: Union[str, Path],
                       overwrite: bool = True,
                       **kwargs) -> da.Array:
+    #from zarr import ProcessSynchronizer
     rechunk_method = kwargs.get('rechunk_method', 'tasks')
 
     if not np.equal(arr.chunksize, chunks).all():
@@ -159,6 +162,7 @@ def write_with_zarrpy(arr: da.Array,
         )
 
     store = zarr.DirectoryStore(location, dimension_separator='/')
+    #sync = ProcessSynchronizer(location + ".sync")
     try:
         zarr_array = zarr.open_array(location, mode='w')
     except:
@@ -271,10 +275,8 @@ def _get_or_create_multimeta(gr, axis_order, unit_list):
         meta.parse_axes(axis_order=axis_order, unit_list=unit_list)
     return meta
 
-
 def store_arrays(arrays: Dict[str, Dict[str, da.Array]], # flatarrays
                  output_path: Union[Path, str],
-                 axes: list, # flataxes
                  scales: Dict[str, Dict[str, Tuple[float, ...]]], # flatscales
                  units: list, # flatunits
                  output_chunks: Tuple[int, ...] = None,
@@ -302,19 +304,18 @@ def store_arrays(arrays: Dict[str, Dict[str, da.Array]], # flatarrays
     zarr.group(output_path, overwrite=overwrite)
     results = {}
     for key, arr in arrays.items():
-        flataxes = axes[key]
         flatscale = scales[key]
         flatunit = units[key]
-        flatchunks = output_chunks[key]
-
         # Make sure chunk size is not larger than array shape in any dimension.
-        chunks = np.minimum(flatchunks or arr.chunksize, arr.shape)
+        chunks = np.minimum(output_chunks or arr.chunksize, arr.shape)
 
         if rechunk_method in (None, 'auto'):
             if np.all(np.less_equal(chunks, arr.chunksize)):
                 rechunk_method = 'rechunker'
                 kwargs['rechunk_method'] = rechunk_method
                 writer_func = write_with_rechunker
+                # print(writer_func)
+                # print(use_tensorstore)
                 if use_tensorstore:
                     raise NotImplementedError("The rechunker method cannot be used with tensorstore.")
                 if 'region_shape' in kwargs:
@@ -334,7 +335,7 @@ def store_arrays(arrays: Dict[str, Dict[str, da.Array]], # flatarrays
         else:
             gr = zarr.group(dirpath, overwrite=overwrite)
 
-        meta = _get_or_create_multimeta(gr, axis_order=flataxes, unit_list=flatunit)
+        meta = _get_or_create_multimeta(gr, axis_order='tczyx', unit_list=flatunit)
 
         meta.add_dataset(path=arrpath, scale=flatscale, overwrite=True)
         meta.retag(os.path.basename(dirpath))

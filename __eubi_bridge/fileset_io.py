@@ -147,13 +147,7 @@ class FileSet:  # TODO: add a pixel_size parameter
                  # pixel_sizes: Iterable = None # TODO
                  ):
         assert shapes is not None or arrays is not None, f"Either shapes or arrays must be supplied."
-        self.axis_dict = {
-                0: 't',
-                1: 'c',
-                2: 'z',
-                3: 'y',
-                4: 'x'
-        }
+
         if arrays is not None:
             self.array_dict = dict(zip(filepaths, arrays))
             shapes = [arr.shape for arr in arrays]
@@ -265,7 +259,12 @@ class FileSet:  # TODO: add a pixel_size parameter
     def concatenate_along(self,
                           axis: int
                           ):
-        ax_dict = self.axis_dict
+        ax_dict = {0: 't',
+                   1: 'c',
+                   2: 'z',
+                   3: 'y',
+                   4: 'x'
+                   }
         # dimension_tag = self.__getattribute__(f'axis_tag{axis}')
         dimension_tag = self.axis_tags[axis]
         if not dimension_tag in self.dimension_tags:

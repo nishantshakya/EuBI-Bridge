@@ -1,4 +1,4 @@
-import sys
+import sys, copy
 import zarr
 from eubi_bridge.ngff import defaults
 from eubi_bridge.utils import convenience as cnv
@@ -10,7 +10,7 @@ from eubi_bridge.base.scale import Downscaler
 import dask.array as da
 
 
-class Multimeta:
+class Multimeta: # Maybe add updateable "_shape"
     def __init__(self,
                  multimeta = None
                  ):
@@ -83,16 +83,22 @@ class Multimeta:
 
     @property
     def unit_list(self):
+        return [self.unit_dict[ax] for ax in self.axis_order]
+    
+    @property
+    def unit_dict(self):
         try:
             if self.has_axes:
-                l = []
+                d = {}
                 for item in self.multimeta[0]['axes']:
                     if 'unit' in item.keys():
-                        l.append(item['unit'])
+                        ax = item['name']
+                        d[ax] = item['unit'].lower()
                     else:
-                        default_unit = defaults.unit_map[item['name']]
-                        l.append(default_unit)
-                return l
+                        ax = item['name']
+                        default_unit = defaults.unit_map[ax].lower()
+                        d[ax] = default_unit
+                return d
             else:
                 return defaults.AxisNotFoundException
         except:
@@ -148,6 +154,13 @@ class Multimeta:
             unit_list = [None] * len(axis_order)
         elif unit_list == 'default':
             unit_list = [defaults.unit_map[i] for i in axis_order]
+
+        if (len(axis_order) - len(unit_list)) > 1:
+            raise ValueError(f"unit_list does not contain all essential units")
+        if (len(axis_order) - len(unit_list)) == 1:
+            assert 'c' in axis_order, f"Unit list is missing some of the essential axes."
+            c_idx = axis_order.index('c')
+            unit_list.insert(c_idx, None)
 
         assert len(axis_order) == len(unit_list), 'Unit list and axis order must have the same length.'
         for i, n in enumerate(axis_order):
@@ -217,16 +230,31 @@ class Multimeta:
     def has_translation(self):
         return 'translation' in self.transformation_types
 
+    def get_scaledict(self,
+                      pth: Union[str, int]
+                      ):
+        pth = cnv.asstr(pth)
+        idx = self.resolution_paths.index(pth)
+        scale = self.multimeta[0]['datasets'][idx]['coordinateTransformations'][0]['scale']         
+        return dict(zip(self.axis_order, scale))
+
+    def get_base_scaledict(self):
+        basepath = self.resolution_paths[0]
+        return self.get_scaledict(basepath)
+
     def get_scale(self,
                   pth: Union[str, int]
                   ):
-        pth = cnv.asstr(pth)
-        idx = self.resolution_paths.index(pth)
-        return self.multimeta[0]['datasets'][idx]['coordinateTransformations'][0]['scale']
+        scaledict = self.get_scaledict(pth)
+        return [scaledict[ax] for ax in self.axis_order]
+    
+    def get_base_scale(self):
+        basepath = self.resolution_paths[0]
+        return self.get_scale(basepath)
 
     def set_scale(self,
                   pth: Union[str, int] = 'auto',
-                  scale: Union[tuple, list] = 'auto', #TODO: add dict option
+                  scale: Union[tuple, list, dict] = 'auto',
                   hard = False
                   ):
         if isinstance(scale, tuple):
@@ -235,6 +263,13 @@ class Multimeta:
             scale[ch_index] = 1
         elif hasattr(scale, 'tolist'):
             scale = scale.tolist()
+        elif isinstance(scale, dict): # TODO: test this block further
+            assert all([ax in self.axis_order for ax in scale])
+            fullscale = self.get_scale(pth)
+            scaledict = dict(zip(self.axis_order, fullscale))
+            scaledict.update(**scale)
+            scale = [scaledict[ax] for ax in self.axis_order]
+
         if pth == 'auto':
             pth = self.refpath
         if scale == 'auto':
@@ -246,15 +281,16 @@ class Multimeta:
         return
 
     def update_scales(self,
-                      reference_scale,
+                      reference_scale: Union[tuple, list],#, dict],
+                      scale_factors: dict,
                       hard = True
                       ):
-        for pth, factor in self.scale_factors.items():
+        for pth, factor in scale_factors.items():
             new_scale = np.multiply(factor, reference_scale)
             self.set_scale(pth, new_scale, hard)
         return self
 
-    def update_unitlist(self, ###TODO: test this
+    def update_unitlist(self,
                  unitlist=None,
                  hard=False
                  ):
@@ -271,6 +307,14 @@ class Multimeta:
         scales = {}
         for pth in self.resolution_paths:
             scl = self.get_scale(pth)
+            scales[pth] = scl
+        return scales
+
+    @property
+    def scaledict(self):
+        scales = {}
+        for pth in self.resolution_paths:
+            scl = self.get_scaledict(pth)
             scales[pth] = scl
         return scales
 
@@ -306,16 +350,18 @@ class Multimeta:
                  ):
         if name not in self.axis_order:
             raise ValueError(f'The axis "{name}" does not exist.')
-        idx = self.axis_order.index(name)
-        self.multimeta[0]['axes'].pop(idx)
+
         for pth in self.resolution_paths:
-            scale = self.get_scale(pth)
-            scale.pop(idx)
-            self.set_scale(pth, scale)
+            scaledict = self.get_scaledict(pth)
+            scale = [scaledict[ax] for ax in self.axis_order if ax != name]
+            idx = self.resolution_paths.index(pth)
+            self.multimeta[0]['datasets'][idx]['coordinateTransformations'][0]['scale'] = scale
             translation = self.get_translation(pth)
             if translation is not None:
-                translation.pop(idx)
-                self.set_translation(pth, translation)
+                self.multimeta[0]['datasets'][idx]['coordinateTransformations'][0]['translation'] = scale
+
+        idx = self.axis_order.index(name)
+        self.multimeta[0]['axes'].pop(idx)
 
     @property
     def label_paths(self):
@@ -355,7 +401,6 @@ class Pyramid:
     def from_ngff(self, gr):
         self.meta = Multimeta().from_ngff(gr)
         self.gr = self.meta.gr
-        # self.update_downscaler()
         return self
 
     @property
@@ -369,9 +414,6 @@ class Pyramid:
     @property
     def layers(self):
         return {path: self.gr[path] for path in self.gr.array_keys()}
-
-    # def get_dask_data(self):
-    #     return {str(path): cnv.as_dask_array(self.layers[path]) for path in self.gr.array_keys()}
 
     def get_dask_data(self):
         return {str(path): da.from_zarr(self.layers[path]) for path in self.gr.array_keys()}
@@ -401,6 +443,52 @@ class Pyramid:
             self.meta.to_ngff(self.gr)
         return
 
+    def update_scales(self,
+                      **kwargs
+                      ):
+        """
+        Automatically updates all pixel values for all layers based on
+        provided pixel values for specific axes corresponding to
+        the top resolution layer.
+        :param kwargs:
+        :return:
+        """
+        hard = kwargs.get('hard', False)
+        
+        new_scaledict = self.meta.get_base_scaledict()
+        for ax in self.meta.axis_order:
+            if ax in kwargs:
+                new_scaledict[ax] = kwargs.get(ax)                
+        new_scale = [new_scaledict[ax] for ax in self.meta.axis_order]
+        ###
+        shapes = [self.layers[key].shape for key in self.meta.resolution_paths]
+        scale_factors = np.divide(shapes[0], shapes)
+        scale_factordict = {pth: scale
+                            for pth, scale in 
+                            zip(self.meta.resolution_paths, scale_factors.tolist())}
+        self.meta.update_scales(reference_scale = new_scale,
+                                scale_factors = scale_factordict,
+                                hard = hard
+                                )
+
+    def update_units(self,
+                      **kwargs
+                      ):
+        """
+        Automatically updates all pixel units based on provided unit strings for each axis.
+        :param kwargs:
+        :return:
+        """
+        hard = kwargs.get('hard', False)
+
+        new_unitdict = self.meta.unit_dict
+        for ax in self.meta.axis_order:
+            if ax in kwargs:
+                new_unitdict[ax] = kwargs.get(ax)
+        new_unitlist = [new_unitdict[ax] for ax in self.meta.axis_order]
+        ###
+        self.meta.update_unitlist(unitlist=new_unitlist, hard = hard)
+
     def update_downscaler(self,
                           scale_factor = None,
                           n_layers = 1,
@@ -413,11 +501,11 @@ class Pyramid:
             scale_factor = tuple([defaults.scale_factor_map[key] for key in self.axes])
         scale = self.meta.scales['0']
         scale_factor = tuple(np.minimum(darr.shape, scale_factor))
-        # assert np.all(np.greater_equal(darr.shape, scale_factor)), f"Array shape must be greater than or equal to the scale factor for all dimensions."
         self.downscaler = Downscaler(array=darr,
                                      scale_factor=scale_factor,
                                      n_layers=n_layers,
                                      scale=scale,
                                      downscale_method = downscale_method,
-                                     backend = backend)
+                                     backend = backend
+                                     )
         return self

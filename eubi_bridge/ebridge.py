@@ -10,7 +10,9 @@ from typing import Union
 
 from eubi_bridge.ngff.multiscales import Pyramid
 from eubi_bridge.ngff import defaults
-from eubi_bridge.ebridge_base import BridgeBase, VoxelMeta, downscale, abbreviate_units
+from eubi_bridge.ebridge_base import BridgeBase, downscale
+from eubi_bridge.utils.convenience import sensitive_glob, take_filepaths, is_zarr_group
+from eubi_bridge.utils.metadata_utils import print_printable, get_printables
 
 import logging, warnings
 
@@ -19,9 +21,10 @@ logging.getLogger('distributed.diskutils').setLevel(logging.CRITICAL)
 def verify_filepaths_for_cluster(
                              filepaths
                              ):
-    print(f"Verifying file extensions for distributed conversion.")
+    print(f"Verifying file extensions for distributed setup.")
     formats = ['lif', 'czi', 'lsm',
-               'ome.tiff', 'ome.tif', 'tiff', 'tif']
+               'ome.tiff', 'ome.tif', 
+               'tiff', 'tif', 'zarr']
     for filepath in filepaths:
         verified = any(list(map(lambda path, ext: path.endswith(ext), [filepath] * len(formats), formats)))
         if not verified:
@@ -30,7 +33,7 @@ def verify_filepaths_for_cluster(
             warnings.warn(f"Falling back on multithreading.")
             break
     if verified:
-        print(f"File extensions were verified for distributed conversion.")
+        print(f"File extensions were verified for distributed setup.")
     return verified
 
 class EuBIBridge:
@@ -176,7 +179,17 @@ class EuBIBridge:
                 on_slurm = False,
             ),
             conversion = dict(
-                output_chunks = (1, 1, 256, 256, 256),
+                time_chunk = 1,
+                channel_chunk = 1,
+                z_chunk = 96,
+                y_chunk=96,
+                x_chunk=96,
+                time_range = None,
+                channel_range = None,
+                z_range = None,
+                y_range = None,
+                x_range = None,
+                dimension_order='tczyx',
                 compressor = 'blosc',
                 compressor_params = {},
                 overwrite = False,
@@ -186,9 +199,14 @@ class EuBIBridge:
                 trim_memory=False,
                 metadata_reader = 'bfio',
                 save_omexml = True,
+                squeeze = False
             ),
             downscale = dict(
-                scale_factor=(1, 1, 2, 2, 2),
+                time_scale_factor = 1,
+                channel_scale_factor = 1,
+                z_scale_factor = 2,
+                y_scale_factor = 2,
+                x_scale_factor = 2,
                 n_layers=3,
                 downscale_method='simple',
             )
@@ -332,14 +350,25 @@ class EuBIBridge:
     def configure_conversion(self,
                              compressor: str = 'default',
                              compressor_params: dict = 'default',
-                             output_chunks: list = 'default',
+                             time_chunk: int = 'default',
+                             channel_chunk: int = 'default',
+                             z_chunk: int = 'default',
+                             y_chunk: int = 'default',
+                             x_chunk: int = 'default',
+                             time_range: int = 'default',
+                             channel_range: int = 'default',
+                             z_range: int = 'default',
+                             y_range: int = 'default',
+                             x_range: int = 'default',
+                             dimension_order: str = 'default',
                              overwrite: bool = 'default',
                              rechunk_method: str = 'default',
                              rechunkers_max_mem: str = 'default',
                              trim_memory: bool = 'default',
                              use_tensorstore: bool = 'default',
                              metadata_reader: str = 'default',
-                             save_omexml: bool = 'default'
+                             save_omexml: bool = 'default',
+                             squeeze: bool = 'default'
                              ):
         """
         Updates conversion configuration settings. To update the current default value for a parameter, provide that parameter with a value other than 'default'.
@@ -372,14 +401,25 @@ class EuBIBridge:
         params = {
             'compressor': compressor,
             'compressor_params': compressor_params,
-            'output_chunks': output_chunks,
+            "time_chunk": time_chunk,
+            "channel_chunk": channel_chunk,
+            "z_chunk": z_chunk,
+            "y_chunk": y_chunk,
+            "x_chunk": x_chunk,
+            "time_range": time_range,
+            "channel_range": channel_range,
+            "z_range": z_range,
+            "y_range": y_range,
+            "x_range": x_range,
+            "dimension_order": dimension_order,
             'overwrite': overwrite,
             'rechunk_method': rechunk_method,
             'rechunkers_max_mem': rechunkers_max_mem,
             'trim_memory': trim_memory,
             'use_tensorstore': use_tensorstore,
             'metadata_reader': metadata_reader,
-            'save_omexml': save_omexml
+            'save_omexml': save_omexml,
+            'squeeze': squeeze
         }
 
         for key in params:
@@ -391,7 +431,11 @@ class EuBIBridge:
     def configure_downscale(self,
                             downscale_method: str = 'default',
                             n_layers: int = 'default',
-                            scale_factor: list = 'default'
+                            time_scale_factor: int = 'default',
+                            channel_scale_factor: int = 'default',
+                            z_scale_factor: int = 'default',
+                            y_scale_factor: int = 'default',
+                            x_scale_factor: int = 'default',
                             ):
         """
         Updates downscaling configuration settings. To update the current default value for a parameter, provide that parameter with a value other than 'default'.
@@ -413,7 +457,11 @@ class EuBIBridge:
         params = {
             'downscale_method': downscale_method,
             'n_layers': n_layers,
-            'scale_factor': scale_factor
+            'time_scale_factor': time_scale_factor,
+            "channel_scale_factor": channel_scale_factor,
+            "z_scale_factor": z_scale_factor,
+            "y_scale_factor": y_scale_factor,
+            "x_scale_factor": x_scale_factor,
         }
 
         for key in params:
@@ -469,7 +517,7 @@ class EuBIBridge:
                                pool = ThreadPool(n_jobs)
                                )
             dask.config.set(config_dict)
-            print(f"Conversion running locally via multithreading.")
+            print(f"Process running locally via multithreading.")
         else:
             if memory_limit == 'auto':
                 reserve_fraction = kwargs.get('reserve_memory_fraction', 0.1)
@@ -484,7 +532,7 @@ class EuBIBridge:
                 print(f"{memory_limit} memory has been allocated per worker.")
 
             if on_slurm:
-                print(f"Conversion running on Slurm.")
+                print(f"Process running on Slurm.")
                 cluster = SLURMCluster(
                                         cores=threads_per_worker,
                                         processes=1,
@@ -496,15 +544,14 @@ class EuBIBridge:
                                         # **worker_options
                                         )
             else:
-                print(f"Conversion running on local cluster.")
+                print(f"Process running on local cluster.")
                 cluster = LocalCluster(
                                        n_workers=n_jobs,
                                        threads_per_worker=threads_per_worker,
-                                       # processes=True,
                                        nanny = False,
                                        scheduler_kwargs=scheduler_options,
                                        memory_limit = memory_limit,
-                                       local_directory=f"{self._dask_temp_dir.name}",  # Unique directory per worker
+                                       local_directory=f"{self._dask_temp_dir.name}",
                                        # **worker_options
                                        )
             cluster.scale(n_jobs)
@@ -525,7 +572,7 @@ class EuBIBridge:
                 y_tag: Union[str, tuple] = None,
                 x_tag: Union[str, tuple] = None,
                 concatenation_axes: Union[int, tuple, str] = None,
-                save_omexml: bool = None,
+                # save_omexml: bool = None,
                 **kwargs
                 ):
         """
@@ -562,23 +609,9 @@ class EuBIBridge:
 
         print(f"Base conversion initiated.")
         ###### Handle input data and metadata
-        if os.path.isfile(input_path):
-            paths = [input_path]
-        else:
-            if not '*' in input_path:
-                input_path_ = os.path.join(input_path, '**')
-            else:
-                input_path_ = input_path
-            paths = glob.glob(input_path_, recursive=True)
+        paths = take_filepaths(input_path, includes = includes, excludes = excludes)
 
-        paths = list(filter(lambda path: (includes in path if includes is not None else True)
-                                         and
-                                         (excludes not in path if excludes is not None else True),
-                            paths
-                            )
-                     )
-
-        filepaths = sorted(list(filter(os.path.isfile, paths)))
+        filepaths = sorted(list(paths))
 
         ###### Start the cluster
         verified_for_cluster = verify_filepaths_for_cluster(filepaths) ### Ensure non-bioformats conversion. If bioformats is needed, fall back on local conversion.
@@ -613,7 +646,7 @@ class EuBIBridge:
 
         verbose = self.cluster_params['verbose']
 
-        # self._start_cluster(**self.cluster_params)
+        # self._start_cluster(**self.cluster_params) ### Alternative place to start cluster.
 
         if 'region_shape' in kwargs.keys():
             self.conversion_params['region_shape'] = kwargs.get('region_shape')
@@ -635,8 +668,6 @@ class EuBIBridge:
 
         ###### Write
         self.base_results = base.write_arrays(output_path,
-                                           # pixel_sizes=scales, ### TODO: scaledict with paths
-                                           # pixel_units=units, ### TODO: unitdict with paths
                                            compute=True,
                                            verbose=verbose,
                                            **self.conversion_params
@@ -667,39 +698,201 @@ class EuBIBridge:
         else:
             shutil.rmtree(self._dask_temp_dir)
 
-        ###### Write OME metadata
-        if save_omexml is None:
-            save_omexml = self.conversion_params['save_omexml']
-        if save_omexml:
-            print(f"Writing OME-XML")
-            for key, vmeta in base.flatome.items():
-                # arr = base.flatarrays[key]
-                # vmeta.set_shape[base.axes, arr.shape]
-                vmeta.save_omexml(key)
-
         t1 = time.time()
         print(f"Elapsed for conversion + downscaling: {(t1 - t0) / 60} min.")
 
 
-# vmeta = VoxelMeta(f"/home/oezdemir/Desktop/TIM2025/data/example_images/pff/FtsZ2-1_GFP_KO2-1_no10G.lsm")
+    def show_pixel_meta(self,
+                input_path: Union[Path, str],
+                includes=None,
+                excludes=None,
+                series: int = None,
+                **kwargs
+                ):
+        """
+        Print pixel-level metadata for all datasets in the 'input_path'.
 
-# vmeta = VoxelMeta(f"/home/oezdemir/PycharmProjects/dask_env2/EuBI-Bridge_tests/blueredchannels_timeseries/Blue-T0002.tif")
-# vmeta.ensure_omexml_fields()
+        Args:
+            input_path (Union[Path, str]): Path to input file or directory.
+            output_path (Union[Path, str]): Directory, in which the output OME-Zarrs will be written.
+            includes (str, optional): Filename patterns to filter for.
+            excludes (str, optional): Filename patterns to filter against.
+            **kwargs: Additional configuration overrides.
 
-# vmeta.set_shape('tz', (1, 91))
-# vmeta.set_scales('tz', (1, 1))
-#
-# essential_fields = {
-#     "physical_size_x", "physical_size_x_unit",
-#     "physical_size_y", "physical_size_y_unit",
-#     "physical_size_z", "physical_size_z_unit",
-#     "time_increment", "time_increment_unit",
-#     "size_x", "size_y", "size_z", "size_t", "size_c"
-# }
-#
-# # Ensure all essential fields are in model_fields_set
-# missing_fields = essential_fields - vmeta.pixel_meta.model_fields_set
-# vmeta.pixel_meta.model_fields_set.update(missing_fields)
-#
-# pprint.pprint(vmeta.omemeta.to_xml())
-# vmeta.pixel_meta.model_fields_set.add('physical_size_z_unit')
+        Raises:
+            Exception: If no files are found in the input path.
+
+        Prints:
+            Process logs including conversion and downscaling time.
+
+        Returns:
+            None
+        """
+
+        # Get parameters:
+        self.cluster_params = self._collect_params('cluster', **kwargs)
+        self.conversion_params = self._collect_params('conversion', **kwargs)
+
+        paths = take_filepaths(input_path, includes = includes, excludes = excludes)
+
+        filepaths = sorted(list(paths))
+
+        ###### Start the cluster
+        verified_for_cluster = verify_filepaths_for_cluster(filepaths)
+        if not verified_for_cluster:
+            self.cluster_params['no_distributed'] = True
+
+        self._start_cluster(**self.cluster_params)
+
+        ###### Read and digest
+        base = BridgeBase(input_path,
+                        excludes=excludes,
+                        includes=includes,
+                        series=series
+                        )
+
+        base.read_dataset(verified_for_cluster)
+
+        base.digest()
+
+        pixel_meta_kwargs = {'series': series,
+                             'metadata_reader': self.conversion_params['metadata_reader'],
+                             **kwargs
+                             }
+
+        base.compute_pixel_metadata(**pixel_meta_kwargs)
+
+        temp_dir = base._dask_temp_dir
+        self.conversion_params['temp_dir'] = temp_dir
+
+        if self.client is not None:
+            base.client = self.client
+        base.set_dask_temp_dir(self._dask_temp_dir)
+
+        # ### apply extra options
+        # if pixel_meta_kwargs['squeeze']:
+        #     base.squeeze_dataset()
+        #
+        # if pixel_meta_kwargs['dimension_order'] is not None:
+        #     base.transpose_dataset(pixel_meta_kwargs['dimension_order'])
+        # ###
+
+        printables = {}
+        for path, manager in base.batchdata.managers.items():
+            axes = manager.axes
+            shape = manager.shapedict
+            scaledict = manager.scaledict
+            unitdict = manager.unitdict
+            printable = get_printables(axes, shape, scaledict, unitdict)
+            printables[path] = printable
+        for path, printable in printables.items():
+            print('---------')
+            print(f"")
+            print(f"Metadata for '{path}':")
+            print_printable(printable)
+
+        ###### Shutdown and clean up
+        if self.client is not None:
+            self.client.shutdown()
+            self.client.close()
+
+        if isinstance(self._dask_temp_dir, tempfile.TemporaryDirectory):
+            shutil.rmtree(self._dask_temp_dir.name)
+        else:
+            shutil.rmtree(self._dask_temp_dir)
+
+    def update_pixel_meta(self,
+                input_path: Union[Path, str],
+                includes=None,
+                excludes=None,
+                series: int = None,
+                time_scale: (int, float) = None,
+                z_scale: (int, float) = None,
+                y_scale: (int, float) = None,
+                x_scale: (int, float) = None,
+                time_unit: str = None,
+                z_unit: str = None,
+                y_unit: str = None,
+                x_unit: str = None,
+                **kwargs
+                ):
+        """
+        Update pixel-level metadata for all datasets in the 'input_path'.
+
+        Args:
+            input_path (Union[Path, str]): Path to the OME-Zarr(s) whose metadata is to be updated.
+            includes (str, optional): Filename patterns to filter for.
+            excludes (str, optional): Filename patterns to filter against.
+            **kwargs: Additional configuration overrides.
+
+        Raises:
+            Exception: If no files are found in the input path.
+
+        Prints:
+            Process logs including conversion and downscaling time.
+
+        Returns:
+            None
+        """
+
+        # Get parameters:
+        self.cluster_params = self._collect_params('cluster', **kwargs)
+        self.conversion_params = self._collect_params('conversion', **kwargs)
+
+        paths = take_filepaths(input_path, includes = includes, excludes = excludes)
+
+        filepaths = sorted(list(paths))
+
+        ###### Start the cluster
+        verified_for_cluster = verify_filepaths_for_cluster(filepaths)
+        if not verified_for_cluster:
+            self.cluster_params['no_distributed'] = True
+
+        self._start_cluster(**self.cluster_params)
+
+        ###### Read and digest
+        base = BridgeBase(input_path,
+                        excludes=excludes,
+                        includes=includes,
+                        series=series
+                        )
+
+        base.read_dataset(verified_for_cluster)
+
+        base.digest()
+
+        pixel_meta_kwargs_ = dict(time_scale = time_scale,
+                                 z_scale = z_scale,
+                                 y_scale = y_scale,
+                                 x_scale = x_scale,
+                                 time_unit = time_unit,
+                                 z_unit = z_unit,
+                                 y_unit = y_unit,
+                                 x_unit = x_unit)
+        pixel_meta_kwargs = {}
+        for key, val in pixel_meta_kwargs_.items():
+            if val is not None:
+                pixel_meta_kwargs[key] = val
+
+        base.compute_pixel_metadata(**pixel_meta_kwargs)
+
+        if self.client is not None:
+            base.client = self.client
+        base.set_dask_temp_dir(self._dask_temp_dir)
+
+        ###### Update metadata (maybe use dask.delayed here?)
+        for path, manager in base.batchdata.managers.items():
+            if is_zarr_group(path):
+                manager.sync_pyramid()
+            else:
+                print(f"Cannot update metadata for non-zarr path: {path}")
+
+        ###### Shutdown and clean up
+        if self.client is not None:
+            self.client.shutdown()
+            self.client.close()
+
+        if isinstance(self._dask_temp_dir, tempfile.TemporaryDirectory):
+            shutil.rmtree(self._dask_temp_dir.name)
+        else:
+            shutil.rmtree(self._dask_temp_dir)

@@ -1,4 +1,4 @@
-import os, json
+import os, json, glob
 import warnings
 
 import numpy as np, pandas as pd
@@ -8,8 +8,7 @@ import dask
 import numcodecs
 import shutil, tempfile
 from pathlib import Path
-
-from pathlib import Path
+from typing import List
 
 from typing import (
     Union,
@@ -305,3 +304,70 @@ def retry_decorator(retries=3, delay=1, exceptions=(Exception,)):
                         raise
         return wrapper
     return decorator
+
+
+
+# path = f"/home/oezdemir/PycharmProjects/ngff_workshop/**/*.zarr"
+# path = f"/home/oezdemir/data/original/**/*.tif"
+
+# glob.glob(path, recursive = True)
+
+
+def sensitive_glob(pattern: str,
+                   recursive: bool = False,
+                   sensitive_to: str = '.zarr'
+                   ) -> List[str]:
+    results = []
+
+    for start_path in glob.glob(pattern, recursive=recursive):
+        def _walk(current_path):
+            if os.path.isfile(current_path):
+                results.append(current_path)
+                return
+            if os.path.isdir(current_path):
+                if current_path.endswith(sensitive_to):
+                    results.append(current_path)
+                    return
+                for entry in os.listdir(current_path):
+                    entry_path = os.path.join(current_path, entry)
+                    _walk(entry_path)
+
+        _walk(start_path)
+
+    return results
+
+
+def take_filepaths(input_path: str,
+                   includes: bool = None,
+                   excludes: bool = None
+                   ):
+    # input_path = f"/home/oezdemir/PycharmProjects/ngff_workshop/AnnaSteyer/L1_E4.zarr"
+
+    if os.path.isfile(input_path) or input_path.endswith('.zarr'):
+        dirname = os.path.dirname(input_path)
+        basename = os.path.basename(input_path)
+        input_path = f"{dirname}/*{basename}"
+
+    if not '*' in input_path and not input_path.endswith('.zarr'):
+        input_path = os.path.join(input_path, '**')
+
+    print(input_path)
+    if not '*' in input_path:
+        input_path_ = os.path.join(input_path, '**')
+    else:
+        input_path_ = input_path
+    paths = sensitive_glob(input_path_, recursive=False, sensitive_to='.zarr')
+
+    paths = list(filter(lambda path: (includes in path if includes is not None else True)
+                                     and
+                                     (excludes not in path if excludes is not None else True),
+                        paths
+                        )
+                 )
+    return paths
+
+# path = f"/home/oezdemir/PycharmProjects/ngff_workshop/AnnaSteyer/dauer_E2.zarr"
+# path = f"/home/oezdemir/PycharmProjects/ngff_workshop/tests/zarrs/**"
+# path = f"/home/oezdemir/PycharmProjects/ngff_workshop/tests/zarrs"
+# h = take_filepaths(path, includes = '8')
+# h = sensitive_glob(path, recursive=False)

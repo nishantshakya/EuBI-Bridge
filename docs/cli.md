@@ -57,17 +57,16 @@ Note that the pattern corresponding to the z axis is provided to the command via
 
 ---
 
----
 
 ## Main Commands
 
+--- 
 ### `eubi to_zarr`
 
 Performs data conversion from supported input formats (including most BioFormats-compatible formats) to OME-Zarr. It supports both **unary** and **aggregative** conversion modes, with options for filtering, metadata specification, downscaling, and distributed processing.
 
----
 
-### Non-configurable Parameters
+#### Non-configurable Parameters
 
 These must be provided directly via the CLI:
 
@@ -111,9 +110,6 @@ eubi to_zarr /path/to/input_dir /path/to/output_dir --time_tag T --channel_tag C
 
 > ℹ️ To better understand aggregative conversion, see the [conversion tutorial](conversion_tutorial.md#tutorial).
 
----
-
----
 
 ### Configurable Parameters
 
@@ -121,39 +117,54 @@ These can be passed via CLI or stored in the configuration file.
 
 #### Cluster Parameters
 
-| Argument               | Type     | Description                                        |
-|------------------------|----------|----------------------------------------------------|
-| `--memory_limit`       | `str`    | Maximum memory per Dask worker                    |
-| `--n_jobs`             | `int`    | Number of Dask workers                            |
-| `--no_distributed`     | `bool`   | Disable distributed computation                   |
-| `--no_worker_restart`  | `bool`   | Prevent automatic worker restarts on failure      |
-| `--on_slurm`           | `bool`   | Enable SLURM-based execution                      |
-| `--temp_dir`           | `str`    | Temporary directory for Dask                      |
-| `--threads_per_worker` | `int`    | Threads per worker                                |
-| `--verbose`            | `bool`   | Enable verbose logging                            |
+| Argument               | Type     | Description                                  |
+|------------------------|----------|----------------------------------------------|
+| `--memory_limit`       | `str`    | Maximum memory per Dask worker               |
+| `--n_jobs`             | `int`    | Number of Dask workers                       |
+| `--no_distributed`     | `bool`   | Disable distributed computation              |
+| `--no_worker_restart`  | `bool`   | Prevent automatic worker restarts on failure |
+| `--on_slurm`           | `bool`   | Enable SLURM-based execution                 |
+| `--temp_dir`           | `str`    | Temporary directory for Dask                 |
+| `--threads_per_worker` | `int`    | Threads per worker                           |
+| `--verbose`            | `bool`   | Enable verbose logging                       |
 
 #### Conversion Parameters
 
-| Parameter                | Type     | Description                                          |
-|--------------------------|----------|------------------------------------------------------|
-| `--compressor`           | `str`    | Compression algorithm                                |
-| `--compressor_params`    | `dict`   | Compressor parameters                                |
-| `--output_chunks`        | `list`   | Output Zarr chunk size                               |
-| `--overwrite`            | `bool`   | Overwrite existing Zarr data                         |
-| `--rechunk_method`       | `str`    | Rechunking method (`tasks`, `p2p` or `rechunker`)    |
-| `--rechunkers_max_mem`   | `str`    | Max memory for `rechunker`                           |
-| `--trim_memory`          | `bool`   | Reduce memory usage                                  |
-| `--use_tensorstore`      | `bool`   | Use TensorStore backend for writing                  |
-| `--metadata_reader`      | `str`    | Metadata extraction method (`bfio` or `aicsimageio`) |
-| `--save_omexml`          | `bool`   | Save OME-XML metadata                                |
+| Parameter              | Type   | Description                                          |
+|------------------------|--------|------------------------------------------------------|
+| `--compressor`         | `str`  | Compression algorithm                                |
+| `--compressor_params`  | `dict` | Compressor parameters                                |
+| `--time_chunk`         | `int`  | Output Zarr chunk size in the time dimension         |
+| `--channel_chunk`      | `int`  | Output Zarr chunk size in the channel dimension      |
+| `--z_chunk`            | `int`  | Output Zarr chunk size in the z dimension            |
+| `--y_chunk`            | `int`  | Output Zarr chunk size in the y dimension            |
+| `--x_chunk`            | `int`  | Output Zarr chunk size in the x dimension            |
+| `--time_range`         | `int`  | Range of pixels to crop in the time dimension        |
+| `--channel_range`      | `int`  | Range of pixels to crop in the channel dimension     |
+| `--z_range`            | `int`  | Range of pixels to crop in the z dimension           |
+| `--y_range`            | `int`  | Range of pixels to crop in the y dimension           |
+| `--x_range`            | `int`  | Range of pixels to crop in the x dimension           |
+| `--dimension_order`    | `bool` | Dimension order of the output dataset                |
+| `--squeeze`            | `bool` | Drop the singlet dimensions from the output array    |
+| `--overwrite`          | `bool` | Overwrite existing Zarr data                         |
+| `--rechunk_method`     | `str`  | Rechunking method (`tasks`, `p2p` or `rechunker`)    |
+| `--rechunkers_max_mem` | `str`  | Max memory for `rechunker`                           |
+| `--trim_memory`        | `bool` | Reduce memory usage                                  |
+| `--use_tensorstore`    | `bool` | Use TensorStore backend for writing                  |
+| `--metadata_reader`    | `str`  | Metadata extraction method (`bfio` or `aicsimageio`) |
+| `--save_omexml`        | `bool` | Save OME-XML metadata                                |
 
 #### Downscale Parameters
 
-| Parameter            | Type     | Description                                  |
-|----------------------|----------|----------------------------------------------|
-| `--downscale_method` | `str`    | Downscale algorithm (`simple`, `mean`, etc.) |
-| `--n_layers`         | `int`    | Number of downscaling layers                 |
-| `--scale_factor`     | `list`   | Scaling factors in each dimension            |
+| Parameter             | Type    | Description                                  |
+|-----------------------|---------|----------------------------------------------|
+| `--downscale_method`  | `str`   | Downscale algorithm (`simple`, `mean`, etc.) |
+| `--n_layers`          | `int`   | Number of downscaling layers                 |
+| `--time_scale_factor` | `int`   | Downscaling factor for the time dimension    |
+| `--z_scale_factor`    | `int`   | Downscaling factor for the z dimension       |
+| `--y_scale_factor`    | `int`   | Downscaling factor for the y dimension       |
+| `--x_scale_factor`    | `int`   | Downscaling factor for the x dimension       |
+
 
 #### Examples
 
@@ -166,20 +177,84 @@ eubi to_zarr /path/to/input_dir /path/to/output_dir --n_jobs 8 --memory_limit 10
 **Specify output chunk size:**
 
 ```bash
-eubi to_zarr /path/to/input_dir /path/to/output_dir --output_chunks 1,1,128,128,128
+eubi to_zarr /path/to/input_dir /path/to/output_dir --z_chunk 128 --y_chunk 128 --x_chunk 128
 ```
 
 **Specify downscaling layers and scale factor:**
 
 ```bash
-eubi to_zarr /path/to/input_dir /path/to/output_dir --n_layers 6 --scale_factor 1,1,3,3,3
+eubi to_zarr /path/to/input_dir /path/to/output_dir --n_layers 6 --z_scale_factor 2 --y_scale_factor 3 --x_scale_factor 3
 ```
+
+**Drop singlet dimensions:**
+
+```bash
+eubi to_zarr /path/to/input_dir /path/to/output_dir --squeeze True
+```
+
+Note that supplying `False` to `--squeeze` will guarantee a 5-dimensional output, creating singletons for dimensions that do not exist in the input images.
+
+**Crop a subset of the array:**
+
+```bash
+eubi to_zarr /path/to/input_dir /path/to/output_dir --t_range 0,100 --z_range 15,125
+```
+
+This will convert a subset of the input datasets (0-100 in the time range and 15-125 in the z range) to OME-Zarr.
+
 
 > ℹ️ For more examples, see the [conversion tutorial](conversion_tutorial.md#tutorial).
 
 ---
 
+### `eubi update_pixel_meta`
+
+Performs in-place metadata update in the OME-Zarr datasets. Currently, pixel units and pixel scales are updateable metadata elements. 
+
+#### Parameters
+
+Each of these parameters can be supplied to the `eubi update_pixel_meta` command:
+
+| Argument       | Type                        | Description                                                 |
+|:---------------|-----------------------------|-------------------------------------------------------------|
+| `input_path`   | `str` or `Path` (mandatory) | Path to an **OME-Zarr** or a directory of **OME-Zarrs**     |
+| `--includes`   | `str`                       | Filename include filter                                     |
+| `--excludes`   | `str`                       | Filename exclude filter                                     |
+| `--time_scale` | `int`, `float`              | Time increment                                              |
+| `--z_scale`    | `int`, `float`              | Z-axis increment                                            |
+| `--y_scale`    | `int`, `float`              | Y-axis increment                                            |
+| `--x_scale`    | `int`, `float`              | X-axis increment                                            |
+| `--time_unit`  | `str`                       | Time unit                                                   |
+| `--z_unit`     | `str`                       | Z-axis unit                                                 |
+| `--y_unit`     | `str`                       | Y-axis unit                                                 |
+| `--x_unit`     | `str`                       | X-axis unit                                                 |
+
+
+Note that, input to `update_pixel_meta` **must** be in the OME-Zarr format. Updating pixel metadata is not supported with other file formats. 
+
+#### Example
+
+```bash
+eubi update_pixel_meta /path/to/input_dir --z_scale 5 --z_unit nanometer
+```
+
+### `eubi show_pixel_meta`
+
+Displays basic pixel metadata for all images in the input directory. 
+
+#### Example
+
+```bash
+eubi show_pixel_meta /path/to/input_dir
+```
+
+The command `show_pixel_meta` supports inputs with diverse file formats. Note that for pyramidal images, currently metadata is displayed only for the highest resolution layer.
+
+---
+
 ## Configuration Commands
+
+---
 
 ### `eubi configure_cluster`
 
@@ -191,8 +266,6 @@ Set cluster defaults using any of the [cluster parameters](#cluster-parameters).
 eubi configure_cluster --memory_limit 10GB
 ```
 
----
-
 ### `eubi configure_conversion`
 
 Set conversion defaults using any of the [conversion parameters](#conversion-parameters).
@@ -202,8 +275,6 @@ Set conversion defaults using any of the [conversion parameters](#conversion-par
 ```bash
 eubi configure_conversion --rechunk_method p2p
 ```
-
----
 
 ### `eubi configure_downscale`
 
@@ -217,14 +288,40 @@ eubi configure_downscale --scale_factor 1,1,2,2,2
 
 ---
 
-
 ## Reset and Inspect Configuration
 
-| Command                        | Description                                                            |
-|--------------------------------|------------------------------------------------------------------------|
-| `eubi reset_config`            | Reset cluster/conversion/downscale parameters to installation defaults |
-| `eubi reset_dask_config`       | Reset the `dask.distributed` settings                                  |
-| `eubi show_config`             | Show current cluster/conversion/downscale settings                     |
-| `eubi show_dask_config`        | Show current Dask configuration                                        |
-| `eubi show_root_defaults`      | Show installation defaults for cluster/conversion/downscale parameters |
-| `eubi show_root_dask_defaults` | Show installation defaults for Dask parameters                         |
+<table>
+  <thead>
+    <tr>
+      <th>Command</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code><nobr>eubi reset_config</nobr></code></td>
+      <td>Reset cluster/conversion/downscale parameters to installation defaults</td>
+    </tr>
+    <tr>
+      <td><code><nobr>eubi reset_dask_config</nobr></code></td>
+      <td>Reset the <code>dask.distributed</code> settings</td>
+    </tr>
+    <tr>
+      <td><code><nobr>eubi show_config</nobr></code></td>
+      <td>Show current cluster/conversion/downscale settings</td>
+    </tr>
+    <tr>
+      <td><code><nobr>eubi show_dask_config</nobr></code></td>
+      <td>Show current Dask configuration</td>
+    </tr>
+    <tr>
+      <td><code><nobr>eubi show_root_defaults</nobr></code></td>
+      <td>Show installation defaults for cluster/conversion/downscale parameters</td>
+    </tr>
+    <tr>
+      <td><code><nobr>eubi show_root_dask_defaults</nobr></code></td>
+      <td>Show installation defaults for Dask parameters</td>
+    </tr>
+  </tbody>
+</table>
+

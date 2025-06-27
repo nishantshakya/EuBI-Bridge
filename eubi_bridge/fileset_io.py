@@ -1,16 +1,14 @@
-import sys
-import tifffile
-import copy, glob, re, os, itertools
-from pathlib import Path
-import dask.array as da, numpy as np, dask
-from collections import Counter
-from typing import Iterable, Callable, Union, List, Tuple
+import copy
+import re
+import os
+from typing import Dict, Iterable, List, Union
+
+import dask.array as da
+import numpy as np
+from dask import delayed
 from natsort import natsorted
-from collections import defaultdict
-from itertools import zip_longest
 
-
-from eubi_bridge.ngff import defaults
+from eubi_bridge.base.data_manager import ArrayManager, ChannelIterator
 
 transpose_list = lambda l: list(map(list, zip(*l)))
 get_numerics = lambda string: list(re.findall(r'\d+', string))
@@ -18,13 +16,35 @@ get_alpha = lambda string: ''.join([i for i in string if not i.isnumeric()])
 
 
 def get_matches(pattern, strings, return_non_matches=False):
+    """
+    Search for regex pattern matches in a list of strings.
+
+    Args:
+        pattern (str): Regular expression pattern to search for.
+        strings (list): List of strings to search within.
+        return_non_matches (bool): If True, returns all results including None for non-matches.
+                                 If False, returns only successful matches.
+
+    Returns:
+        list: List of match objects (or None for non-matches if return_non_matches is True).
+    """
     matches = [re.search(pattern, string) for string in strings]
     if return_non_matches:
         return matches
     return [match for match in matches if match is not None]
 
 
-def split_by_match(filepaths, *args):  # Group per channel using channel query
+def split_by_match(filepaths, *args):
+    """
+    Group filepaths based on matching patterns.
+
+    Args:
+        filepaths (list): List of file paths to search in.
+        *args: Variable number of patterns to search for in filepaths.
+
+    Returns:
+        dict: Dictionary with patterns as keys and lists of matching filepaths as values.
+    """
     ret = dict().fromkeys(args)
     for key in args:
         matches = get_matches(key, filepaths)
@@ -33,6 +53,16 @@ def split_by_match(filepaths, *args):  # Group per channel using channel query
 
 
 def find_match_and_numeric(filepaths, *args):
+    """
+    Find matches in filepaths and group them by their numeric suffixes.
+
+    Args:
+        filepaths (list): List of file paths to search in.
+        *args: Variable number of patterns to search for in filepaths.
+
+    Returns:
+        dict: Dictionary where keys are matched patterns and values are lists of match objects.
+    """
     ret = {}
     for key in args:
         matches = get_matches(key, filepaths)
@@ -47,7 +77,20 @@ def find_match_and_numeric(filepaths, *args):
 
 def concatenate_shapes_along_axis(shapes: Iterable,
                                   axis: int
-                                  ):
+                                  ) -> list:
+    """
+    Concatenate shapes along a specified axis.
+
+    Args:
+        shapes (Iterable): Iterable of shape tuples to concatenate.
+        axis (int): Axis along which to concatenate shapes.
+
+    Returns:
+        list: New shape after concatenation along the specified axis.
+
+    Raises:
+        ValueError: If dimensions other than the concatenation axis don't match.
+    """
     reference_shape = shapes[0]
     concatenated_shape = [num for num in reference_shape]
     for shape in shapes[1:]:
@@ -63,7 +106,18 @@ def concatenate_shapes_along_axis(shapes: Iterable,
 def accumulate_slices_along_axis(shapes: Iterable,
                                  axis: int,
                                  slices: Union[tuple, list] = None
-                                 ):
+                                 ) -> list:
+    """
+    Calculate accumulated slices for concatenation along a specified axis.
+
+    Args:
+        shapes (Iterable): Iterable of shape tuples to be concatenated.
+        axis (int): Axis along which to calculate slices.
+        slices (Union[tuple, list], optional): Initial slices. If None, creates full slices.
+
+    Returns:
+        list: List of slice tuples for each input shape.
+    """
     reference_shape = shapes[0]
     if slices is None:
         slices = [[slice(None, None) for _ in reference_shape] for _ in shapes]
@@ -129,11 +183,22 @@ def reduce_paths_flexible(paths: Iterable[str],
     return ''.join(merged_tokens)
 
 
-class FileSet:  # TODO: add a pixel_size parameter
+class FileSet:
     """
-    Make sure the filepaths are sorted before passing them to this class.
-    This class also assumes that the input files can contain maximum 5 dimensions.
+    A class to manage file paths and their shapes for multi-dimensional data.
+
+    This class handles file paths and their corresponding array data, supporting operations
+    like concatenation along specified axes. It's designed to work with up to 5 dimensions (t, c, z, y, x).
     """
+
+    AXIS_DICT = {
+        0: 't',
+        1: 'c',
+        2: 'z',
+        3: 'y',
+        4: 'x'
+    }
+
 
     def __init__(self,
                  filepaths: Iterable[str],
@@ -143,73 +208,62 @@ class FileSet:  # TODO: add a pixel_size parameter
                  axis_tag2: Union[str, tuple] = None,
                  axis_tag3: Union[str, tuple] = None,
                  axis_tag4: Union[str, tuple] = None,
-                 arrays: Iterable[da.Array] = None
-                 # pixel_sizes: Iterable = None # TODO
-                 ):
-        assert shapes is not None or arrays is not None, f"Either shapes or arrays must be supplied."
-        self.axis_dict = {
-                0: 't',
-                1: 'c',
-                2: 'z',
-                3: 'y',
-                4: 'x'
-        }
+                 arrays: Iterable[da.Array] = None):
+        """
+        Initialize the FileSet class.
+
+        Args:
+            filepaths: The file paths of the arrays.
+            shapes: The shapes of the arrays. Required if arrays is not provided.
+            axis_tag0-4: Tags for each axis (t, c, z, y, x).
+            arrays: The arrays. If provided, shapes can be None.
+        """
+        if shapes is None and arrays is None:
+            raise ValueError("Either shapes or arrays must be provided.")
+
         if arrays is not None:
             self.array_dict = dict(zip(filepaths, arrays))
             shapes = [arr.shape for arr in arrays]
         else:
             self.array_dict = None
 
-        self.region_dict = {path: arr.copy() for path, arr in self.array_dict.items()}
-
         self.shape_dict = dict(zip(filepaths, shapes))
-        # self.axis_tag0 = axis_tag0
-        # self.axis_tag1 = axis_tag1
-        # self.axis_tag2 = axis_tag2
-        # self.axis_tag3 = axis_tag3
-        # self.axis_tag4 = axis_tag4
-        # self.axis_tags = {
-        #     0: axis_tag0,
-        #     1: axis_tag1,
-        #     2: axis_tag2,
-        #     3: axis_tag3,
-        #     4: axis_tag4
-        # }
-        full_axis_list = list(range(5))
         self.axis_tags = [axis_tag0, axis_tag1, axis_tag2, axis_tag3, axis_tag4]
-        dimension_tags, specified_axes = [], []
-        for axis, tag in zip(full_axis_list, self.axis_tags):
+
+        # Initialize dimension tags and specified axes
+        self.dimension_tags = []
+        self.specified_axes = []
+        for axis, tag in enumerate(self.axis_tags):
             if tag is not None:
-                dimension_tags.append(tag)
-                specified_axes.append(axis)
+                self.dimension_tags.append(tag)
+                self.specified_axes.append(axis)
 
-        self.dimension_tags = dimension_tags
-        self.specified_axes = specified_axes
-
-        self.group = {'': filepaths}
-        assert len(self.dimension_tags) == len(self.specified_axes)
-        self.slice_dict = {path: tuple(slice(0, size) for size in shape) for path, shape in self.shape_dict.items()}
+        self.group = {'': list(filepaths)}
+        self.slice_dict = {
+            path: tuple(slice(0, size) for size in shape)
+            for path, shape in self.shape_dict.items()
+        }
         self.path_dict = dict(zip(filepaths, filepaths))
-        # self._reference_filepath = filepaths[0]
-        # self.detect_voxel_meta()
 
-    # def detect_voxel_meta(self):
-    #     self.vmeta = VoxelMetaReader(self._reference_filepath)
-    # def _axis_as_str(self, axis: int):
-    #     ax_dict = {0 : 't',
-    #                1: 'c',
-    #                2: 'z',
-    #                3: 'y',
-    #                4: 'x'
-    #                }
-    #     return ax_dict[axis]
-
-    # def _get_concatenation_axis(self, dimension_tag):
-    #     return self.specified_axes[self.dimension_tags.index(dimension_tag)]
 
     def get_numerics_per_dimension_tag(self,
-                                       dimension_tag
-                                       ):
+                                       dimension_tag: str
+                                       ) -> List[str]:
+        """
+        Extract numeric values from filepaths for a given dimension tag.
+
+        Args:
+            dimension_tag (str): The dimension tag to extract numerics for
+                (e.g., 't' for time).
+
+        Returns:
+            list: List of numeric strings extracted from the filepaths.
+
+        Example:
+            >>> f = FileSet(['file_t0001_channel1.ome.tif', 'file_t0002_channel2.ome.tif'])
+            >>> f.get_numerics_per_dimension_tag('t')
+            ['0001', '0002']
+        """
         filepaths = list(self.group.values())[0]
         matches = get_matches(f'{dimension_tag}\d+', filepaths)
         spans = [match.string[match.start():match.end()] for match in matches]
@@ -217,27 +271,58 @@ class FileSet:  # TODO: add a pixel_size parameter
         # TODO: add an incrementality validator
         return numerics
 
-    def _csplit_by(self, tup: tuple):  # TODO: maybe redefine as nonserial_split?
+
+    def _csplit_by(self, tup: tuple) -> dict:
+        """
+        Split the filepaths in the group by the given dimension tags.
+
+        Args:
+            tup (tuple): A tuple of dimension tags to split by.
+
+        Returns:
+            dict: The split group as a dictionary.
+        """
         group = copy.deepcopy(self.group)
         for key, filepaths in group.items():
+            # Initialize a dictionary to store the split filepaths
             alpha_dict = {key: [] for key in tup}
             for tag in tup:
+                # Get matches for the current dimension tag
                 matches = get_matches(f'{tag}', filepaths)
+                # Extract the matched spans
                 spans = [match.string[match.start():match.end()] for match in matches]
+                # Extract the matched filepaths
                 matched_paths = [match.string for match in matches]
+                # Create a copy of the spans
                 alpha = copy.deepcopy(spans)
+                # Get the unique categories for the current dimension tag
                 alpha_categories = np.unique(alpha).tolist()
+                # Check that there is only one category
                 assert len(alpha_categories) == 1, f"Number of categories is not 1: {alpha_categories}"
+                # Get the category tag
                 alpha_tag = alpha_categories[0]
+                # Store the matched filepaths in the alpha dictionary
                 alpha_dict[alpha_tag] = matched_paths
+            # Update the group with the split filepaths
             group = alpha_dict
         return group
 
+
     def _split_by(self, *args):
+        """
+        Split the filepaths in the group by the given dimension tags.
+
+        Args:
+            *args (str): The dimension tags to split by.
+
+        Returns:
+            dict: The split group as a dictionary.
+        """
         group = copy.deepcopy(self.group)
         for dim in args:
             if dim not in self.dimension_tags:
                 raise ValueError(f"The dimension '{dim}' is not among the given dimension_tags.")
+            # If the dimension tag is a tuple or list, split by all of them
             if isinstance(dim, (tuple, list)):
                 group = self._csplit_by(dim)
             else:
@@ -255,49 +340,60 @@ class FileSet:  # TODO: add a pixel_size parameter
                                     tag_key = ''.join([key, '-', dim, num])
                                 else:
                                     tag_key = ''.join([dim, num])
-                                    # print(f"hey: {dim, num, tag_key}")
                                 if not tag_key in numeric_dict:
                                     numeric_dict[tag_key] = []
                                 numeric_dict[tag_key].append(filepaths[idx])
                 group = numeric_dict
         return group
 
-    def concatenate_along(self,
-                          axis: int
-                          ):
-        ax_dict = self.axis_dict
-        # dimension_tag = self.__getattribute__(f'axis_tag{axis}')
+    def concatenate_along(self, axis: int) -> dict:
+        """
+        Concatenate arrays along the specified axis.
+
+        Args:
+            axis: The axis along which to concatenate the arrays.
+
+        Returns:
+            dict: The grouped file paths after concatenation.
+
+        Raises:
+            ValueError: If the axis is not among the given dimension tags.
+        """
         dimension_tag = self.axis_tags[axis]
-        if not dimension_tag in self.dimension_tags:
+        if dimension_tag not in self.dimension_tags:
             raise ValueError(f"The dimension '{dimension_tag}' is not among the given dimension_tags.")
-        to_split = [item for item in self.dimension_tags if item != dimension_tag]
+
+        # Split the group by all dimension tags except the one specified by the axis
+        to_split = [tag for tag in self.dimension_tags if tag != dimension_tag]
         group = self._split_by(*to_split)
-        axis = self.specified_axes[self.dimension_tags.index(dimension_tag)]
+
         for key, paths in group.items():
+            # Sort paths naturally
             sorted_paths = natsorted(paths)
+
+            # Get slices and shapes for each path
             group_slices = [self.slice_dict[path] for path in sorted_paths]
             group_shapes = [self.shape_dict[path] for path in sorted_paths]
             group_reduced_paths = [self.path_dict[path] for path in sorted_paths]
 
+            # Calculate new slices and shape after concatenation
             new_slices = accumulate_slices_along_axis(group_shapes, axis, group_slices)
             new_shape = concatenate_shapes_along_axis(group_shapes, axis)
-            # ax_str = self._axis_as_str(axis)
-            p = reduce_paths_flexible(group_reduced_paths,
-                                     dimension_tag,
-                                     # group_reduced_paths,
-                                     f'_{ax_dict[axis]}set'
-                                    )
-            new_reduced_paths = [p] * len(group_reduced_paths)
-            # new_reduced_paths = reduce_paths(group_reduced_paths,
-            #                                  dimension_tag,
-            #                                  # group_reduced_paths,
-            #                                  # f'_{ax_dict[axis]}set'
-            #                                  )
 
+            # Update paths with concatenated version
+            new_reduced_path = reduce_paths_flexible(
+                group_reduced_paths,
+                dimension_tag,
+                replace_with=f'_{self.AXIS_DICT[axis]}set'
+            )
+            new_reduced_paths = [new_reduced_path] * len(group_reduced_paths)
+
+            # If arrays are present, concatenate them
             if self.array_dict is not None:
                 group_arrays = [self.array_dict[path] for path in sorted_paths]
                 new_array = da.concatenate(group_arrays, axis=axis)
 
+            # Update dictionaries with new values
             for path, slc, reduced_path in zip(sorted_paths, new_slices, new_reduced_paths):
                 self.slice_dict[path] = slc
                 self.shape_dict[path] = new_shape
@@ -307,80 +403,183 @@ class FileSet:  # TODO: add a pixel_size parameter
 
         return group
 
-    # def get_table(self):
-    #     import pandas as pd
-    #     df = pd.DataFrame({"path": self.path_dict,
-    #                        "slice": self.slice_dict,
-    #                        "shape": self.shape_dict})
-    #     return df
+    def get_concatenated_arrays(self) -> Dict[str, tuple]:
+        """
+        Get a dictionary of concatenated arrays with their metadata.
 
-    # @property
-    # def table(self):
-    #     try:
-    #         return self.get_table()
-    #     except:
-    #         return None
-
-    # def refine_path_dict(self,
-    #                      root_dir = None,
-    #                      exception = 'set'
-    #                      ):
-    #     path_dict = copy.deepcopy(self.path_dict)
-    #     # path_dict = copy.deepcopy(fsio.path_dict)
-    #     paths = list(path_dict.values())
-    #     # unique_path_num = np.unique(paths).size
-    #     def split_path(path):
-    #         s = path.split('/')
-    #         if s[0] == '': s = s[1:]
-    #         return s
-    #     splitted = list(map(split_path, paths))
-    #     shortest_item = min(splitted, key = len)
-    #     length_shortest = len(shortest_item)
-    #
-    #     tails = []
-    #     for i in range(1, length_shortest):
-    #         r = length_shortest - i
-    #         last_tails = copy.deepcopy(tails)
-    #         roots, tails = [], []
-    #         for item in splitted:
-    #             tail = '-'.join(item[::-1][:r][::-1])
-    #             root = '-'.join(item[::-1][r:][::-1])
-    #             tail, _ = os.path.splitext(tail)
-    #             roots.append(root)
-    #             tails.append(tail)
-    #
-    #         unique_roots = np.unique(roots).tolist()
-    #         unique_root_num = np.unique(roots).size
-    #         if unique_root_num == 1:
-    #             unique_root = unique_roots[0]
-    #         if (unique_root_num > 1):
-    #             valid_tails = last_tails
-    #             break
-    #         elif unique_root_num == 1:
-    #             if exception in unique_root:
-    #                 valid_tails = last_tails
-    #                 break
-    #             else:
-    #                 valid_tails = tails
-    #         else:
-    #             raise Exception(f"Something seriously wrong happened.")
-    #
-    #     for key, tail in zip(list(path_dict.keys()), valid_tails):
-    #         if root_dir is None:
-    #             self.path_dict[key] = tail
-    #         else:
-    #             self.path_dict[key] = os.path.join(root_dir, tail)
-    #     return tails
-
-    def get_concatenated_arrays(self):
-        unique_ids = []
+        Returns:
+            dict: A dictionary where keys are input paths and values are tuples of
+                (updated_path, array_data).
+        """
+        # Get unique paths and their corresponding keys
         unique_paths = []
         unique_input_paths = []
-        for key, path in self.path_dict.items():
+        unique_ids = []
+
+        # Process paths in natural sort order
+        for key in natsorted(self.path_dict):
+            path = self.path_dict[key]
             if path not in unique_paths:
                 unique_input_paths.append(key)
                 unique_paths.append(path)
                 unique_ids.append(key)
+
+        # Get arrays for unique paths
         unique_arrays = [self.array_dict[path] for path in unique_ids]
 
-        return {key: [path, arr] for key, path, arr in zip(unique_input_paths, unique_paths, unique_arrays)}
+        # Create result dictionary
+        return {
+            key: (path, arr)
+            for key, path, arr in zip(unique_input_paths, unique_paths, unique_arrays)
+        }
+
+
+@delayed
+def build_managers_dict(**delayed_managers):
+    return delayed_managers
+
+
+class BatchFile:
+    def __init__(self,
+                 filepaths: Iterable[str],
+                 shapes: Iterable[tuple | list] = None,
+                 axis_tag0: Union[str, tuple] = None,
+                 axis_tag1: Union[str, tuple] = None,
+                 axis_tag2: Union[str, tuple] = None,
+                 axis_tag3: Union[str, tuple] = None,
+                 axis_tag4: Union[str, tuple] = None,
+                 arrays: Iterable[da.Array] = None,
+                 ):
+
+        self.fileset = FileSet(filepaths,
+                          shapes=shapes,
+                          axis_tag0=axis_tag0,
+                          axis_tag1=axis_tag1,
+                          axis_tag2=axis_tag2,
+                          axis_tag3=axis_tag3,
+                          axis_tag4=axis_tag4,
+                          arrays=arrays)
+        self.managers = None
+
+
+    def split_channel_groups(self):
+
+        fileset = self.fileset
+        sub_filesets = {}
+        axis_tags = copy.deepcopy(fileset.axis_tags)
+
+        if all([item is None for item in axis_tags]):
+            groups = copy.deepcopy(fileset.path_dict)
+            for key, value in groups.items():
+                groups[key] = [value]
+        elif fileset.axis_tags[1] is None:
+            groups = copy.deepcopy(fileset.group)
+        else:
+            axis_tags[1] = None
+            groups = fileset._split_by(fileset.axis_tags[1])
+        return groups
+
+
+    def read_metadata(self,
+                      series: int = None,
+                      metadata_reader: str = 'bfio',
+                      **kwargs
+                      ):
+        grs = self.split_channel_groups()
+        self.sample_paths = natsorted([grs[grname][0]
+                                        for grname in grs])
+        managers = {path: delayed(ArrayManager)(path,
+                                            series = series,
+                                            metadata_reader = metadata_reader,
+                                            **kwargs
+                                            ) for
+                         path in self.sample_paths
+                         }
+
+        self.managers = build_managers_dict(**managers).compute()
+        return self.managers
+
+    def batch_concatenate(self,
+                          axes: Iterable[int] = []
+                          ):
+
+        for axis in axes:
+            self.fileset.concatenate_along(axis)
+
+        if self.managers is None:
+            self.managers = self.read_metadata()
+        channels_ = {}
+        for path, manager in self.managers.items():
+            manager._ensure_correct_channels()
+            manager.fix_bad_channels()
+            channels_[manager.path] = manager.channels
+
+        channelslist = []
+        channels = {}
+        if 1 in axes:
+            for chkey in natsorted(channels_.keys()):
+                channelslist.extend(channels_[chkey])
+            for chkey in natsorted(channels_.keys()):
+                channels[chkey] = channelslist
+        else:
+            channels = channels_
+
+        self.channels = channels
+
+
+    def _update_nonunique_channel_colors(self,
+                                         channels
+                                         ):
+        colors = [channel['color'] for channel in channels]
+        if len(set(colors)) < len(colors):
+            chn = ChannelIterator(num_channels=len(colors))
+            for channel, _channel in zip(channels, chn._channels):
+                channel['color'] = _channel['color']
+        return channels
+
+
+    def get_output_dicts(self,
+                         root_path,
+                         path_separator: str = '-',
+                         ):
+        fileset = self.fileset
+        root_path_ = os.path.normpath(root_path).split(os.sep)
+        root_path_top = []
+        for item in root_path_:
+            if '*' in item:
+                break
+            root_path_top.append(item)
+
+        if os.name == 'nt':
+            # Use os.path.splitdrive to handle any drive letter
+            drive, _ = os.path.splitdrive(root_path)
+            root_path = os.path.join(drive + os.sep, *root_path_top)
+        else:
+            root_path = os.path.join(os.sep, *root_path_top)
+
+        arrays_ = fileset.get_concatenated_arrays()  ### ! Careful here
+
+
+        arrays, channels, sample_paths, managers = {}, {}, {}, {}
+
+        for key, vals in arrays_.items():
+            (updated_key, arr,
+             ) = vals
+            new_key = os.path.relpath(updated_key, root_path)
+            new_key = os.path.splitext(new_key)[0]
+            new_key = new_key.replace(os.sep, path_separator)
+            arrays[new_key] = arrays_[key][1]
+            sample_paths[new_key] = key
+
+            ### Update colors if they are not unique
+            self.channels[key] = self._update_nonunique_channel_colors(self.channels[key])
+            ###
+
+            channels[new_key] = self.channels[key]
+            managers[new_key] = self.managers[key]
+            managers[new_key]._channels = self.channels[key]
+
+
+        return (arrays,
+                sample_paths,
+                managers)

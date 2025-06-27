@@ -1,7 +1,12 @@
-import os, json, glob
+import os, json, glob, time
 import warnings
 
 import numpy as np, pandas as pd
+try:
+    import cupy as cp
+    cupy_available = True
+except:
+    cupy_available = False
 import zarr, json, shutil, os, copy, zarr
 from dask import array as da
 import dask
@@ -38,7 +43,7 @@ def asdask(data, chunks = 'auto'):
 
 def path_has_pyramid(path):
     try:
-        store = zarr.DirectoryStore(path)
+        store = zarr.storage.LocalStore(path)
         _ = zarr.open_group(store, mode = 'r')
         return True
     except:
@@ -115,28 +120,6 @@ def transpose_dict(dictionary):
 def argsorter(s):
     return sorted(range(len(s)), key = lambda k: s[k])
 
-
-######## ARRAY UTILITIES BELOW
-
-def copy_zarray(zarray):
-    copied = zarr.zeros_like(zarray)
-    copied[:] = zarray[:]
-    return copied
-
-def copy_array(array):
-    if isinstance(array, zarr.Array):
-        copied = copy_zarray(array)
-    elif isinstance(array, (da.Array, np.array)):
-        copied = array.copy()
-    return copied
-
-def insert_zarray(collection,
-                  axis: int = 0
-                  ):
-    zarray = copy_zarray(collection[0])
-    for z in collection[1:]:
-        zarray.append(z, axis = axis)
-    return zarray
 
 def is_zarr_array(path: (str, Path)
                   ):
@@ -230,11 +213,12 @@ def turn2json(my_dict):
     stringified = json.dumps(my_dict, default = convert_np_types)
     return json.loads(stringified)
 
-def as_store(store: (zarr.storage.Store, zarr.Array, Path, str) # TODO: other scenarios?
+
+def as_store(store: (zarr.storage.StoreLike, zarr.Array, Path, str) # TODO: other scenarios?
                 ):
     assert isinstance(store, (zarr.storage.Store, zarr.Array, Path, str)), f"The given store cannot be parsed."
     if isinstance(store, (Path, str)):
-        out = zarr.DirectoryStore(store, dimension_separator = '/')
+        out = zarr.storage.LocalStore(store, dimension_separator = '/')
     else:
         out = store
     return out
@@ -245,17 +229,21 @@ def as_dask_array(array: (da.Array, zarr.Array, np.ndarray,
                   backend = 'numpy',
                   **params
                   ):
-    assert isinstance(array, (da.Array, zarr.Array, np.ndarray, cp.ndarray)), f"The given array type {type(array)} cannot be parsed."
+    if cupy_available:
+        assert isinstance(array, (da.Array, zarr.Array, np.ndarray, cp.ndarray)), f"The given array type {type(array)} cannot be parsed."
+    else:
+        assert isinstance(array, (da.Array, zarr.Array, np.ndarray)), f"The given array type {type(array)} cannot be parsed."
     assert backend in ('numpy', 'cupy'), f"Currently, the only supported backends are 'numpy' or 'cupy'."
-    if isinstance(array, zarr.Array):
-        out = da.from_zarr(array, **params)
-    elif isinstance(array, (np.ndarray, cp.ndarray)):
+
+    if not isinstance(array, da.Array):
         out = da.from_array(array, **params)
-    elif isinstance(array, da.Array):
-        # out = da.array(array, **params)
-        out = array
+
     if backend == 'cupy':
-        out = out.map_blocks(cp.asarray)
+        if cupy_available:
+            out = out.map_blocks(cp.asarray)
+        else:
+            raise ValueError("cupy is not available!")
+
     return out
 
 
@@ -307,12 +295,6 @@ def retry_decorator(retries=3, delay=1, exceptions=(Exception,)):
 
 
 
-# path = f"/home/oezdemir/PycharmProjects/ngff_workshop/**/*.zarr"
-# path = f"/home/oezdemir/data/original/**/*.tif"
-
-# glob.glob(path, recursive = True)
-
-
 def sensitive_glob(pattern: str,
                    recursive: bool = False,
                    sensitive_to: str = '.zarr'
@@ -341,7 +323,6 @@ def take_filepaths(input_path: str,
                    includes: bool = None,
                    excludes: bool = None
                    ):
-    # input_path = f"/home/oezdemir/PycharmProjects/ngff_workshop/AnnaSteyer/L1_E4.zarr"
 
     if os.path.isfile(input_path) or input_path.endswith('.zarr'):
         dirname = os.path.dirname(input_path)
@@ -351,7 +332,7 @@ def take_filepaths(input_path: str,
     if not '*' in input_path and not input_path.endswith('.zarr'):
         input_path = os.path.join(input_path, '**')
 
-    print(input_path)
+    # print(input_path)
     if not '*' in input_path:
         input_path_ = os.path.join(input_path, '**')
     else:
@@ -364,10 +345,6 @@ def take_filepaths(input_path: str,
                         paths
                         )
                  )
-    return paths
+    paths = list(filter(lambda path: not path.endswith('zarr.json'), paths))
+    return sorted(paths)
 
-# path = f"/home/oezdemir/PycharmProjects/ngff_workshop/AnnaSteyer/dauer_E2.zarr"
-# path = f"/home/oezdemir/PycharmProjects/ngff_workshop/tests/zarrs/**"
-# path = f"/home/oezdemir/PycharmProjects/ngff_workshop/tests/zarrs"
-# h = take_filepaths(path, includes = '8')
-# h = sensitive_glob(path, recursive=False)

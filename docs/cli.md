@@ -26,12 +26,18 @@ Convert each file in `input_dir` into an OME-Zarr container, saving the result i
 eubi to_zarr /path/to/input_dir /path/to/output_dir
 ```
 
+Convert to OME-Zarr with zarr version 3:
+
+```bash
+eubi to_zarr /path/to/input_dir /path/to/output_dir --zarr_format 3
+```
+
 **Excluding files:**
 
 Exclude files with `thumbs` in the filename:
 
 ```bash
-eubi to_zarr /path/to/input_dir /path/to/output_dir --excludes 'thumbs'
+eubi to_zarr /path/to/input_dir /path/to/output_dir --zarr_format 3 --excludes 'thumbs'
 ```
 
 **Wildcard filtering:**
@@ -63,7 +69,8 @@ Note that the pattern corresponding to the z axis is provided to the command via
 --- 
 ### `eubi to_zarr`
 
-Performs data conversion from supported input formats (including most BioFormats-compatible formats) to OME-Zarr. It supports both **unary** and **aggregative** conversion modes, with options for filtering, metadata specification, downscaling, and distributed processing.
+Performs data conversion from supported input formats (including most BioFormats-compatible formats) to OME-Zarr. 
+It supports both **unary** and **aggregative** conversion modes, with options for filtering, metadata specification, downscaling, and distributed processing.
 
 
 #### Non-configurable Parameters
@@ -73,7 +80,7 @@ These must be provided directly via the CLI:
 | Argument               | Type                        | Description                     |
 |------------------------|-----------------------------|---------------------------------|
 | `input_path`           | `str` or `Path` (mandatory) | Path to input file or folder    |
-| `output_path`          | `str` or `Path` (mandatory) | Path to output Zarr directory   |
+| `output_path`          | `str` or `Path` (mandatory) | Path to output folder           |
 | `--includes`           | `str`                       | Include filter for filenames    |
 | `--excludes`           | `str`                       | Exclude filter for filenames    |
 | `--series`             | `int`                       | BioFormats series index         |
@@ -113,7 +120,7 @@ eubi to_zarr /path/to/input_dir /path/to/output_dir --time_tag T --channel_tag C
 
 ### Configurable Parameters
 
-These can be passed via CLI or stored in the configuration file. 
+These are stored in the configuration file but can also be supplied directly to the command. The values supplied to the command will override the values from the configuration file. 
 
 #### Cluster Parameters
 
@@ -128,31 +135,52 @@ These can be passed via CLI or stored in the configuration file.
 | `--threads_per_worker` | `int`    | Threads per worker                           |
 | `--verbose`            | `bool`   | Enable verbose logging                       |
 
+
+#### Readers Parameters
+
+| Parameter            | Type   | Description                        |
+|----------------------|--------|------------------------------------|
+| `as_mosaic`          | `bool` | Whether to stitch the mosaic tiles |
+| `view_index`         | `int`  | Index for view selection           |
+| `phase_index`        | `int`  | Index for phase selection          |
+| `illumination_index` | `int`  | Index for illumination selection   |
+| `scene_index`        | `int`  | Index for scene selection          |
+| `rotation_index`     | `int`  | Index for rotation selection       |
+| `mosaic_tile_index`  | `int`  | Index for mosaic tile selection    |
+| `sample_index`       | `int`  | Index for sample selection         |
+
+
 #### Conversion Parameters
 
-| Parameter              | Type   | Description                                          |
-|------------------------|--------|------------------------------------------------------|
-| `--compressor`         | `str`  | Compression algorithm                                |
-| `--compressor_params`  | `dict` | Compressor parameters                                |
-| `--time_chunk`         | `int`  | Output Zarr chunk size in the time dimension         |
-| `--channel_chunk`      | `int`  | Output Zarr chunk size in the channel dimension      |
-| `--z_chunk`            | `int`  | Output Zarr chunk size in the z dimension            |
-| `--y_chunk`            | `int`  | Output Zarr chunk size in the y dimension            |
-| `--x_chunk`            | `int`  | Output Zarr chunk size in the x dimension            |
-| `--time_range`         | `int`  | Range of pixels to crop in the time dimension        |
-| `--channel_range`      | `int`  | Range of pixels to crop in the channel dimension     |
-| `--z_range`            | `int`  | Range of pixels to crop in the z dimension           |
-| `--y_range`            | `int`  | Range of pixels to crop in the y dimension           |
-| `--x_range`            | `int`  | Range of pixels to crop in the x dimension           |
-| `--dimension_order`    | `bool` | Dimension order of the output dataset                |
-| `--squeeze`            | `bool` | Drop the singlet dimensions from the output array    |
-| `--overwrite`          | `bool` | Overwrite existing Zarr data                         |
-| `--rechunk_method`     | `str`  | Rechunking method (`tasks`, `p2p` or `rechunker`)    |
-| `--rechunkers_max_mem` | `str`  | Max memory for `rechunker`                           |
-| `--trim_memory`        | `bool` | Reduce memory usage                                  |
-| `--use_tensorstore`    | `bool` | Use TensorStore backend for writing                  |
-| `--metadata_reader`    | `str`  | Metadata extraction method (`bfio` or `aicsimageio`) |
-| `--save_omexml`        | `bool` | Save OME-XML metadata                                |
+| Parameter              | Type   | Description                                              |
+|------------------------|--------|----------------------------------------------------------|
+| `--zar_format`         | `int`  | Zarr version (3 for OME-Zarr 0.5 and 2 for OME-Zarr 0.4) |
+| `--compressor`         | `str`  | Compression algorithm                                    |
+| `--compressor_params`  | `dict` | Compressor parameters                                    |
+| `--time_chunk`         | `int`  | Output Zarr chunk size in the time dimension             |
+| `--channel_chunk`      | `int`  | Output Zarr chunk size in the channel dimension          |
+| `--z_chunk`            | `int`  | Output Zarr chunk size in the z dimension                |
+| `--y_chunk`            | `int`  | Output Zarr chunk size in the y dimension                |
+| `--x_chunk`            | `int`  | Output Zarr chunk size in the x dimension                |
+| `--time_shard_coef`    | `int`  | Sharding coefficient for the time dimension              |
+| `--channel_shard_coef` | `int`  | Sharding coefficient for the channel dimension           |
+| `--z_shard_coef`       | `int`  | Sharding coefficient for the z dimension                 |
+| `--y_shard_coef`       | `int`  | Sharding coefficient for the y dimension                 |
+| `--x_shard_coef`       | `int`  | Sharding coefficient for the x dimension                 |
+| `--time_range`         | `int`  | Range of pixels to crop in the time dimension            |
+| `--channel_range`      | `int`  | Range of pixels to crop in the channel dimension         |
+| `--z_range`            | `int`  | Range of pixels to crop in the z dimension               |
+| `--y_range`            | `int`  | Range of pixels to crop in the y dimension               |
+| `--x_range`            | `int`  | Range of pixels to crop in the x dimension               |
+| `--dimension_order`    | `bool` | Dimension order of the output dataset                    |
+| `--squeeze`            | `bool` | Drop the singlet dimensions from the output array        |
+| `--overwrite`          | `bool` | Overwrite existing Zarr data                             |
+| `--rechunk_method`     | `str`  | Rechunking method (`tasks`, `p2p` or `rechunker`)        |
+| `--trim_memory`        | `bool` | Reduce memory usage                                      |
+| `--use_tensorstore`    | `bool` | Use TensorStore backend for writing                      |
+| `--use_gpu`            | `bool` | Run on GPU by using cupy arrays                          |
+| `--metadata_reader`    | `str`  | Metadata extraction method (`bfio` or `aicsimageio`)     |
+| `--save_omexml`        | `bool` | Save OME-XML metadata                                    |
 
 #### Downscale Parameters
 
@@ -180,13 +208,21 @@ eubi to_zarr /path/to/input_dir /path/to/output_dir --n_jobs 8 --memory_limit 10
 eubi to_zarr /path/to/input_dir /path/to/output_dir --z_chunk 128 --y_chunk 128 --x_chunk 128
 ```
 
+**Convert to zarr version 3 and specify the shard size:**
+
+```bash
+eubi to_zarr /path/to/input_dir /path/to/output_dir --zarr_format 3 --y_shard_coef 4 --x_shard_coef 4 --y_chunk 128 --x_chunk 128
+```
+
+Note that this will create a zarr dataset with a chunk size of 128x128 and a shard size of 512x512 (by multiplying the chunk size by the shard coefficient).
+
 **Specify downscaling layers and scale factor:**
 
 ```bash
 eubi to_zarr /path/to/input_dir /path/to/output_dir --n_layers 6 --z_scale_factor 2 --y_scale_factor 3 --x_scale_factor 3
 ```
 
-**Drop singlet dimensions:**
+**Remove singlet dimensions:**
 
 ```bash
 eubi to_zarr /path/to/input_dir /path/to/output_dir --squeeze True

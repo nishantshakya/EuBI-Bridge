@@ -1,20 +1,51 @@
+import copy
 import os, itertools, tempfile, shutil, threading
+import pprint
 import zarr, dask, numcodecs
+from zarr import codecs
+from zarr.storage import LocalStore
+from dataclasses import dataclass
 from dask import delayed
-import rechunker
-from rechunker import rechunk, Rechunked
 import dask.array as da
 import numpy as np
 from pathlib import Path
-from typing import List, Tuple, Dict, Union, Any, Tuple
+from typing import List, Tuple, Dict, Union, Any, Tuple, Optional
 ### internal imports
-from eubi_bridge.ngff.multiscales import Multimeta
+from eubi_bridge.ngff.multiscales import NGFFMetadataHandler  #Multimeta
 from eubi_bridge.utils.convenience import get_chunksize_from_array, is_zarr_group #, retry_decorator
+
 
 import logging, warnings
 
 logging.getLogger('distributed.diskutils').setLevel(logging.CRITICAL)
 
+ZARR_V2 = 2
+ZARR_V3 = 3
+DEFAULT_DIMENSION_SEPARATOR = "/"
+DEFAULT_COMPRESSION_LEVEL = 5
+DEFAULT_COMPRESSION_ALGORITHM = "zstd"
+
+
+@dataclass
+class CompressorConfig:
+    name: str = 'blosc'
+    params: dict = None
+
+    def __post_init__(self):
+        self.params = self.params or {}
+
+def autocompute_color(channel_ix: int):
+    default_colors = [
+        "FF0000",  # Red
+        "00FF00",  # Green
+        "0000FF",  # Blue
+        "FF00FF",  # Magenta
+        "00FFFF",  # Cyan
+        "FFFF00",  # Yellow
+        "FFFFFF",  # White
+    ]
+    color = default_colors[i] if i < len(default_colors) else f"{i * 40 % 256:02X}{i * 85 % 256:02X}{i * 130 % 256:02X}"
+    return color
 
 def create_zarr_array(directory: Union[Path, str, zarr.Group],
                       array_name: str,
@@ -58,9 +89,13 @@ def get_regions(array_shape: Tuple[int, ...],
             steps.append(increments)
     return list(itertools.product(*steps))
 
-def get_compressor(name, **params):
+
+def get_compressor(name,
+                   zarr_format = ZARR_V2,
+                   **params): ### TODO: continue this, add for zarr3
     name = name.lower()
-    compression_dict = {
+    assert zarr_format in (ZARR_V2, ZARR_V3)
+    compression_dict2 = {
         "blosc": "Blosc",
         "bz2": "BZ2",
         "gzip": "GZip",
@@ -72,9 +107,23 @@ def get_compressor(name, **params):
         "zstd": "Zstd"
     }
 
-    compressor_name = compression_dict[name]
-    compressor_class = getattr(numcodecs, compressor_name)
-    compressor = compressor_class(**params)
+    compression_dict3 = {
+        "blosc": "BloscCodec",
+        "gzip": "GzipCodec",
+        "sharding": "ShardingCodec",
+        "zstd": "ZstdCodec",
+        "crc32ccodec": "CRC32CCodec"
+    }
+
+    if zarr_format == ZARR_V2:
+        compressor_name = compression_dict2[name]
+        compressor_instance = getattr(numcodecs, compressor_name)
+    elif zarr_format == ZARR_V3:
+        compressor_name = compression_dict3[name]
+        compressor_instance = getattr(codecs, compressor_name)
+    else:
+        raise Exception("Unsupported Zarr format")
+    compressor = compressor_instance(**params)
     return compressor
 
 def get_default_fill_value(dtype):
@@ -86,190 +135,336 @@ def get_default_fill_value(dtype):
         return False
     return None
 
+def _create_zarr_v2_array(
+        store_path: Union[Path, str],
+        shape: Tuple[int, ...],
+        chunks: Tuple[int, ...],
+        dtype: Any,
+        compressor_config: CompressorConfig,
+        dimension_separator: str,
+        overwrite: bool,
+) -> zarr.Array:
+    compressor = get_compressor(compressor_config.name,
+                                zarr_format=ZARR_V2,
+                                **compressor_config.params)
+    return zarr.create(
+        shape=shape,
+        chunks=chunks,
+        dtype=dtype,
+        store=store_path,
+        compressor=compressor,
+        dimension_separator=dimension_separator,
+        overwrite=overwrite,
+        zarr_format=ZARR_V2,
+    )
+
+def _create_zarr_v3_array(
+        store: Any,
+        shape: Tuple[int, ...],
+        chunks: Tuple[int, ...],
+        dtype: Any,
+        compressor_config: CompressorConfig,
+        shards: Optional[Tuple[int, ...]],
+        dimension_names: str = None,
+        overwrite: bool = False,
+        **kwargs
+) -> zarr.Array:
+    compressors = [get_compressor(compressor_config.name,
+                                  zarr_format=ZARR_V3,
+                                  **compressor_config.params)
+                   ]
+    return zarr.create_array(
+        store=store,
+        shape=shape,
+        chunks=chunks,
+        shards=shards,
+        dimension_names=dimension_names,
+        dtype=dtype,
+        compressors=compressors,
+        overwrite=overwrite,
+        zarr_format=ZARR_V3,
+        **kwargs
+    )
+
+def _create_zarr_array(
+        store_path: Union[Path, str],
+        shape: Tuple[int, ...],
+        chunks: Tuple[int, ...],
+        dtype: Any,
+        compressor_config: CompressorConfig = None,
+        zarr_format: int = ZARR_V2,
+        overwrite: bool = False,
+        shards: Optional[Tuple[int, ...]] = None,
+        dimension_separator: str = DEFAULT_DIMENSION_SEPARATOR,
+        dimension_names: str = None,
+        **kwargs
+) -> zarr.Array:
+    """Create a Zarr array with specified format and compression settings."""
+    compressor_config = compressor_config or CompressorConfig()
+    chunks = tuple(np.minimum(shape, chunks).tolist())
+    if shards is not None:
+        shards = tuple(np.array(shards).flatten().tolist())
+        assert np.allclose(np.mod(shards, chunks), 0)
+    store = LocalStore(store_path)
+
+    if zarr_format not in (ZARR_V2, ZARR_V3):
+        raise ValueError(f"Unsupported Zarr format: {zarr_format}")
+
+    if zarr_format == ZARR_V2:
+        return _create_zarr_v2_array(
+            store_path=store_path,
+            shape=shape,
+            chunks=chunks,
+            dtype=dtype,
+            compressor_config=compressor_config,
+            dimension_separator=dimension_separator,
+            overwrite=overwrite,
+        )
+
+    return _create_zarr_v3_array(
+        store=store,
+        shape=shape,
+        chunks=chunks,
+        dtype=dtype,
+        compressor_config=compressor_config,
+        shards=shards,
+        dimension_names=dimension_names,
+        overwrite=overwrite,
+        # **kwargs
+    )
+
 def write_chunk_with_zarrpy(chunk: np.ndarray, zarr_array: zarr.Array, block_info: Dict) -> None:
+    if hasattr(chunk, "get"):
+        chunk = chunk.get()  # Convert CuPy -> NumPy
     zarr_array[tuple(slice(*b) for b in block_info[0]["array-location"])] = chunk
 
+def write_with_zarrpy(arr: da.Array,
+                      store_path: Union[str, Path],
+                      chunks: Optional[Tuple[int, ...]] = None,
+                      shards: Optional[Tuple[int, ...]] = None,
+                      dimension_names: str = None,
+                      dtype: Any = None,
+                      compressor: str = 'blosc',
+                      compressor_params: dict = None,
+                      rechunk_method: str = 'tasks',
+                      overwrite: bool = True,
+                      zarr_format: int = 2,
+                      **kwargs
+                      ) -> zarr.Array:
+    """
+    Write dask array to zarr storage using either zarr v2 or v3 format.
+
+    Args:
+        arr: Dask array to write
+        store_path: Path where the Zarr array will be stored
+        chunks: Chunk size for each dimension
+        shards: Shard size for zarr v3 format
+        dtype: Data type of the array (defaults to arr.dtype)
+        compressor: Compression algorithm ('blosc' by default)
+        compressor_params: Parameters for the compressor
+        rechunk_method: Method for rechunking ('tasks' or 'p2p')
+        zarr_format: Zarr format version (2 or 3)
+        **kwargs: Additional arguments for array creation
+    """
+    store_path = str(store_path)
+    dtype = dtype or arr.dtype
+    compressor_params = compressor_params or {'cname': 'zstd', 'clevel': 5}
+
+    if chunks is None:
+        chunks = arr.chunksize
+
+    chunks = tuple(int(size) for size in chunks)
+
+    if shards is None:
+        shards = copy.deepcopy(chunks)
+
+    if not np.allclose(np.mod(shards, chunks), 0):
+        multiples = np.floor_divide(shards, chunks)
+        shards = np.multiply(multiples, chunks)
+
+    shards = tuple(int(size) for size in np.ravel(shards))
+
+    if zarr_format == 2:
+        if not np.equal(arr.chunksize, chunks).all():
+            arr = arr.rechunk(chunks, method=rechunk_method)
+    else:  # zarr_format == 3
+        if shards is not None and not np.equal(arr.chunksize, shards).all():
+            arr = arr.rechunk(shards, method=rechunk_method)
+
+    compressor_config = CompressorConfig(name=compressor,
+                                         params=compressor_params)
+
+    zarr_array = _create_zarr_array(
+        store_path=store_path,
+        shape=arr.shape,
+        chunks=chunks,
+        dtype=dtype,
+        overwrite=overwrite,
+        compressor_config = compressor_config,
+        zarr_format=zarr_format,
+        shards=shards,
+        dimension_names=dimension_names,
+        **kwargs
+    )
+    res = arr.map_blocks(write_chunk_with_zarrpy, zarr_array=zarr_array, dtype=dtype)
+
+    return res
+
 def write_chunk_with_tensorstore(chunk: np.ndarray, ts_store, block_info: Dict) -> None:
+    if hasattr(chunk, "get"):
+        chunk = chunk.get()  # Convert CuPy -> NumPy
     ts_store[tuple(slice(*b) for b in block_info[0]["array-location"])] = chunk
 
-def write_with_rechunker(arr: da.Array,
-                         chunks: Tuple[int, ...],
-                         location: Union[str, Path],
-                         overwrite: bool = True,
-                         **kwargs) -> Rechunked:
-    temp_dir = kwargs.get('temp_dir')
-    if not temp_dir:
-        raise ValueError("A temp_dir must be specified.")
 
-    temp_dir_is_auto = temp_dir == 'auto'
-    if temp_dir_is_auto:
-        temp_dir = tempfile.TemporaryDirectory()
-
-    max_mem = kwargs.get('rechunkers_max_mem', "auto")
-    if max_mem == "auto":
-        max_mem = get_chunksize_from_array(arr)
-
-    if overwrite:
-        shutil.rmtree(location, ignore_errors=True)
-
-    target_store = zarr.DirectoryStore(location, dimension_separator='/')
-    temp_store = zarr.DirectoryStore(temp_dir.name if isinstance(temp_dir, tempfile.TemporaryDirectory) else temp_dir,
-                                     dimension_separator='/')
-
-    compressor_name = kwargs.get('compressor', 'blosc')
-    compressor_params = kwargs.get('compressor_params', {})
-    compressor = get_compressor(compressor_name, **compressor_params)
-
-    dtype = kwargs.get('dtype', arr.dtype)
-    if dtype == 'auto':
-        dtype = arr.dtype
-
-    fill_value = kwargs.get('fill_value', get_default_fill_value(dtype))
-
-    # Use rechunker (without fill_value)
-    rechunked = rechunk(source=arr,
-                        target_chunks=chunks,
-                        target_store=target_store,
-                        temp_store=temp_store,
-                        max_mem=max_mem,
-                        executor='dask',
-                        target_options={'overwrite': True,
-                                        'compressor': compressor,
-                                        'write_empty_chunks': True})  # No fill_value here
-
-    # Reopen Zarr array and update fill_value properly
-    zarr_array = zarr.open_array(target_store, mode="a")  # Open in append mode
-    zarr_array.fill_value = fill_value  # Set fill_value correctly
-
-    # Cleanup temporary directory if auto-generated
-    if temp_dir_is_auto:
-        temp_dir.cleanup()
-
-    return rechunked
-
-def write_with_zarrpy(arr: da.Array,
-                      chunks: Tuple[int, ...],
-                      location: Union[str, Path],
-                      overwrite: bool = True,
-                      **kwargs) -> da.Array:
-    rechunk_method = kwargs.get('rechunk_method', 'tasks')
-
-    if not np.equal(arr.chunksize, chunks).all():
-        arr = arr.rechunk(chunks, method=rechunk_method #, threshold = 1_000_000
-        )
-
-    store = zarr.DirectoryStore(location, dimension_separator='/')
-    try:
-        zarr_array = zarr.open_array(location, mode='w')
-    except:
-        compressor_name = kwargs.get('compressor', 'blosc')
-        compressor_params = kwargs.get('compressor_params', {})
-        compressor = get_compressor(compressor_name, **compressor_params)
-        dtype = kwargs.get('dtype', arr.dtype)
-        if dtype == 'auto':
-            dtype = arr.dtype
-
-        fill_value = kwargs.get('fill_value', get_default_fill_value(dtype))
-
-        zarr_array = zarr.create(shape=arr.shape, chunks=chunks, dtype=dtype, compressor = compressor, store=store, overwrite=overwrite, fill_value = fill_value)#, synchronizer = sync)
-
-    return arr.map_blocks(write_chunk_with_zarrpy, zarr_array=zarr_array, dtype=dtype)
-
-
-def write_with_tensorstore(arr: da.Array,
-                           chunks: Tuple[int, ...],
-                           location: Union[str, Path],
-                           overwrite: bool = True,
-                           **kwargs) -> da.Array:
-
+def write_with_tensorstore(
+    arr: da.Array,
+    store_path: Union[str, Path],
+    chunks: Optional[Tuple[int, ...]] = None,
+    shards: Optional[Tuple[int, ...]] = None,
+    dimension_names: str = None,
+    dtype: Any = None,
+    compressor: str = 'blosc',
+    compressor_params: dict = None,
+    rechunk_method: str = 'tasks',
+    overwrite: bool = True,
+    zarr_format: int = 2,
+    **kwargs
+) -> da.Array:
+    """
+    Write dask array to zarr storage using tensorstore with support for both zarr v2 and v3 formats.
+    """
     try:
         import tensorstore as ts
-    except:
-        raise ModuleNotFoundError(f"The module tensorstore has not been found. Try 'conda install -c conda-forge tensorstore'")
-    rechunk_method = kwargs.get('rechunk_method', 'tasks')
+    except ImportError:
+        raise ModuleNotFoundError(
+            "The module tensorstore has not been found. "
+            "Try 'conda install -c conda-forge tensorstore'"
+        )
 
-    compressor_name = kwargs.get('compressor', 'blosc')
-    compressor_params = kwargs.get('compressor_params', {})
-    compressor = dict(id = compressor_name, **compressor_params)
-    dtype = kwargs.get('dtype', arr.dtype)
+    compressor_params = compressor_params or {'cname': 'zstd', 'clevel': 5}
+    # shard_to_chunk_ratio = kwargs.get('shard_to_chunk_ratio', 3)
+    dtype = dtype or arr.dtype
     fill_value = kwargs.get('fill_value', get_default_fill_value(dtype))
 
-    if dtype == 'auto':
-        dtype = arr.dtype
+    if chunks is None:
+        chunks = arr.chunksize
 
-    zarr_spec = {
-        "driver": "zarr",
-        "kvstore": {
-            "driver": "file",
-            "path": location,
-        },
-        "metadata": {
-            "dtype": dtype.str,
+    chunks = tuple(int(size) for size in chunks)
+
+    if shards is None:
+        shards = copy.deepcopy(chunks)
+
+    if not np.allclose(np.mod(shards, chunks), 0):
+        multiples = np.floor_divide(shards, chunks)
+        shards = np.multiply(multiples, chunks)
+
+    shards = tuple(int(size) for size in np.ravel(shards))
+
+    # Rechunk if needed
+    if zarr_format == 2:
+        if not np.equal(arr.chunksize, chunks).all():
+            arr = arr.rechunk(chunks, method=rechunk_method)
+    else:  # zarr_format == 3
+        if shards is not None and not np.equal(arr.chunksize, shards).all():
+            arr = arr.rechunk(shards, method=rechunk_method)
+
+    # Prepare zarr metadata
+    if zarr_format == 3:
+        # Only include array-to-array codecs such as blosc
+        zarr_metadata = {
+            "data_type": np.dtype(dtype).name,
+            "shape": arr.shape,
+            "chunk_grid": {
+                "name": "regular",
+                "configuration": {
+                    "chunk_shape": shards if zarr_format == 3 else chunks,
+                }
+            },
+            "dimension_names": list(dimension_names),
+            "codecs": [
+                {
+                    "name": "sharding_indexed",
+                    "configuration": {
+                        "chunk_shape": chunks,
+                        "codecs": [{"name": "bytes",
+                                    "configuration": {"endian": "little"}},
+                                   {"name": compressor,
+                                    "configuration": compressor_params or {}}],
+                        "index_codecs": [{"name": "bytes",
+                                          "configuration": {"endian": "little"}},
+                                         {"name": "crc32c"}],
+                        "index_location": "end"
+                    }
+                }
+            ],
+            "node_type": "array"
+        }
+
+    else:  # zarr_format == 2
+        zarr_metadata = {
+            "compressor": {
+                "id": compressor,
+                **compressor_params
+            },
+            "dtype": np.dtype(dtype).str,
             "shape": arr.shape,
             "chunks": chunks,
-            "compressor": compressor,
-            "dimension_separator": "/",
-            "fill_value": fill_value
+            "fill_value": fill_value,
+            "dimension_separator": '/',
+        }
+
+    zarr_spec = {
+        "driver": "zarr" if zarr_format == 2 else "zarr3",
+        "kvstore": {
+            "driver": "file",
+            "path": str(store_path),
         },
+        "metadata": zarr_metadata,
+        "create": True,
+        "delete_existing": overwrite,
     }
 
-    if not np.equal(arr.chunksize, chunks).all():
-        arr = arr.rechunk(chunks, method=rechunk_method)
+    ts_store = ts.open(zarr_spec).result()
+    return arr.map_blocks(write_chunk_with_tensorstore, ts_store=ts_store, dtype=dtype)
 
-    ts_store = ts.open(zarr_spec, create=True, delete_existing=overwrite).result()
-    return arr.map_blocks(write_chunk_with_tensorstore, ts_store=ts_store, dtype=arr.dtype)
 
-def write_with_dask(arr: da.Array,
-                    chunks: Tuple[int, ...],
-                    location: Union[str, Path],
-                    overwrite: bool = True,
-                    **kwargs: Any
-                    ) -> List[da.Array]:
-    rechunk_method: str = kwargs.get('rechunk_method', 'tasks')
-
-    if not np.equal(arr.chunksize, chunks).all():
-        res: da.Array = arr.rechunk(chunks, method=rechunk_method)
-    else:
-        res: da.Array = arr
-
-    store: zarr.DirectoryStore = zarr.DirectoryStore(location, dimension_separator='/')
-    try:
-        zarr_array: zarr.Array = zarr.open_array(location, mode='r')
-    except:
-        compressor_name = kwargs.get('compressor', 'blosc')
-        compressor_params = kwargs.get('compressor_params', {})
-        compressor = get_compressor(compressor_name, **compressor_params)
-        dtype = kwargs.get('dtype', arr.dtype)
-        if dtype == 'auto':
-            dtype = arr.dtype
-        fill_value = kwargs.get('fill_value', get_default_fill_value(dtype))
-        zarr_array = zarr.create(shape=res.shape, chunks=chunks, dtype=dtype, compressor=compressor, store=store,
-                                 overwrite=overwrite, fill_value = fill_value)
-
-    region_shape: Tuple[int, ...] = kwargs.get('region_shape', chunks)
-    regions: List[Tuple[slice, ...]] = get_regions(arr.shape, region_shape, as_slices=True)
-    result: List[da.Array] = []
-    for slc in regions:
-        res: da.Array = da.to_zarr(
-            arr=arr[slc],
-            region=slc,
-            url=zarr_array,
-            compute=False,
-        )
-        result.append(res)
-
-    return result
 
 @delayed
 def count_threads():
     return threading.active_count()
 
-def _get_or_create_multimeta(gr, axis_order, unit_list):
-    meta = Multimeta()
-    meta.from_ngff(gr)
-    if not meta.has_axes:
-        meta.parse_axes(axis_order=axis_order, unit_list=unit_list)
-    return meta
+
+def _get_or_create_multimeta(gr: zarr.Group,
+                             axis_order: str,
+                             unit_list: List[str],
+                             version: str) -> NGFFMetadataHandler:
+    """
+    Read existing or create new metadata handler for zarr group.
+
+    Parameters
+    ----------
+    gr : zarr.Group
+        Zarr group to read metadata from or write metadata to.
+    axis_order : str
+        String indicating the order of axes in the arrays.
+    unit_list : List[str]
+        List of strings indicating the units of each axis.
+    version : str
+        Version of NGFF to create if no metadata exists.
+
+    Returns
+    -------
+    handler : NGFFMetadataHandler
+        Metadata handler for the zarr group.
+    """
+    handler = NGFFMetadataHandler()
+    handler.connect_to_group(gr)
+    try:
+        handler.read_metadata()
+    except:
+        handler.create_new(version=version)
+        handler.parse_axes(axis_order=axis_order, units=unit_list)
+    return handler
 
 
 def store_arrays(arrays: Dict[str, Dict[str, da.Array]], # flatarrays
@@ -278,53 +473,49 @@ def store_arrays(arrays: Dict[str, Dict[str, da.Array]], # flatarrays
                  scales: Dict[str, Dict[str, Tuple[float, ...]]], # flatscales
                  units: list, # flatunits
                  output_chunks: Tuple[int, ...] = None,
+                 output_shard_coefficients: Tuple[int, ...] = None,
                  compute: bool = False,
                  overwrite: bool = False,
-                 **kwargs) -> Dict[str, da.Array]:
+                 channel_meta: dict = None,
+                 **kwargs # shard_to_chunk_ratio and zarr_format should specified inside kwargs
+                 ) -> Dict[str, da.Array]:
 
     rechunk_method = kwargs.get('rechunk_method', 'tasks')
+    if rechunk_method == 'rechunker':
+        raise ValueError(f"This version of EuBI-Bridge does not support rechunker. Choose either of 'tasks' or 'p2p'.")
+    assert rechunk_method in ('tasks', 'p2p')
     use_tensorstore = kwargs.get('use_tensorstore', False)
     verbose = kwargs.get('verbose', False)
+    zarr_format = kwargs.get('zarr_format', 2)
+    output_shards = kwargs.get('output_shards', None)
 
-    if rechunk_method == 'rechunker':
-        writer_func = write_with_rechunker
-        if use_tensorstore:
-            raise NotImplementedError("The rechunker method cannot be used with tensorstore.")
-        if 'region_shape' in kwargs:
-            raise NotImplementedError("The rechunker method is not compatible with region-based writing.")
-    elif 'region_shape' in kwargs:
-        writer_func = write_with_dask
-        if use_tensorstore:
-            raise NotImplementedError("Region-based writing is not possible with tensorstore.")
-    else:
-        writer_func = write_with_tensorstore if use_tensorstore else write_with_zarrpy
+    writer_func = write_with_tensorstore if use_tensorstore else write_with_zarrpy
 
-    zarr.group(output_path, overwrite=overwrite)
+    zarr.group(output_path, overwrite=overwrite, zarr_version = zarr_format)
     results = {}
+
     for key, arr in arrays.items():
         flataxes = axes[key]
         flatscale = scales[key]
         flatunit = units[key]
         flatchunks = output_chunks[key]
+        flatchannels = channel_meta[key] if channel_meta is not None else None
 
-        # Make sure chunk size is not larger than array shape in any dimension.
-        chunks = np.minimum(flatchunks or arr.chunksize, arr.shape)
+        chunks = np.minimum(flatchunks or arr.chunksize, arr.shape).tolist()
+        chunks = tuple([int(item) for item in chunks])
 
-        if rechunk_method in (None, 'auto'):
-            if np.all(np.less_equal(chunks, arr.chunksize)):
-                rechunk_method = 'rechunker'
-                kwargs['rechunk_method'] = rechunk_method
-                writer_func = write_with_rechunker
-                if use_tensorstore:
-                    raise NotImplementedError("The rechunker method cannot be used with tensorstore.")
-                if 'region_shape' in kwargs:
-                    raise NotImplementedError("The rechunker method is not compatible with region-based writing.")
+        if zarr_format == 3:
+            if output_shards is not None:
+                shards = output_shards[key]
+            elif output_shard_coefficients is not None:
+                flatshardcoefs = output_shard_coefficients[key]
+                shards = np.multiply(chunks, flatshardcoefs)
             else:
-                kwargs['rechunk_method'] = 'tasks'
+                shards = chunks
 
-        if rechunk_method != 'rechunker':
-            if 'temp_dir' in kwargs:
-                kwargs.pop('temp_dir')
+            shards = tuple([int(item) for item in shards])
+        else:
+            shards = None
 
         dirpath = os.path.dirname(key)
         arrpath = os.path.basename(key)
@@ -332,32 +523,56 @@ def store_arrays(arrays: Dict[str, Dict[str, da.Array]], # flatarrays
         if is_zarr_group(dirpath):
             gr = zarr.open_group(dirpath, mode='a')
         else:
-            gr = zarr.group(dirpath, overwrite=overwrite)
+            gr = zarr.group(dirpath, overwrite=overwrite, zarr_version = zarr_format)
 
-        meta = _get_or_create_multimeta(gr, axis_order=flataxes, unit_list=flatunit)
+        version = '0.5' if zarr_format == 3 else '0.4'
 
-        meta.add_dataset(path=arrpath, scale=flatscale, overwrite=True)
+        meta = _get_or_create_multimeta(gr,
+                                        axis_order=flataxes,
+                                        unit_list=flatunit,
+                                        version=version
+                                        )
+
+        meta.add_dataset(path=arrpath,
+                         scale=flatscale,
+                         overwrite=True)
         meta.retag(os.path.basename(dirpath))
-        meta.to_ngff(gr)
+
+        if flatchannels == 'auto':
+            if 'c' in flataxes:
+                idx = flataxes.index('c')
+                size = arr.shape[idx]
+            else:
+                size = 1
+            meta.autocompute_omerometa(size, arr.dtype)
+        elif flatchannels is None:
+            pass
+        else:
+            dtype = kwargs.get('dtype', arr.dtype)
+            for channel in flatchannels:
+                meta.add_channel(color = channel['color'],
+                                 label = channel['label'],
+                                 dtype = dtype
+                                 )
+        meta.save_changes()
 
         if verbose:
             print(f"Writer function: {writer_func}")
             print(f"Rechunk method: {rechunk_method}")
+
         results[key] = writer_func(arr=arr,
+                                   store_path=key,  # compressor = compressor, dtype = dtype,
                                    chunks=chunks,
-                                   location=key, # compressor = compressor, dtype = dtype,
+                                   shards = shards,
+                                   dimension_names = flataxes,
                                    overwrite=overwrite,
                                    **kwargs
                                    )
 
     if compute:
         try:
-            if rechunk_method == 'rechunker':
-                for result in results.values():
-                    result.execute()
-            else:
-                dask.compute(list(results.values()), retries = 6)
-        except:
+            dask.compute(list(results.values()), retries = 6)
+        except Exception as e:
             # print(e)
             pass
     else:

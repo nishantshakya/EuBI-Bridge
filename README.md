@@ -2,25 +2,36 @@
 
 [![Documentation](https://img.shields.io/badge/documentation-online-green)](https://euro-bioimaging.github.io/EuBI-Bridge/)
 
-EuBI-Bridge is a tool for distributed conversion of microscopic image collections into the OME-Zarr (v0.4) format. It can be used from the command line or as part of a Python script, making it easy to integrate into existing workflows.  
+EuBI-Bridge is a tool for distributed conversion of microscopic image collections into the OME-Zarr format. 
+It can run on the command line or as part of a Python script.  
 
 A key feature of EuBI-Bridge is **aggregative conversion**, which concatenates multiple images along specified dimensions—particularly useful for handling large datasets stored as TIFF file collections.  
 
-EuBI-Bridge is built on several powerful libraries, including `zarr`, `aicsimageio`, `dask-distributed`, and `rechunker`, among others. 
-While a variety of input file formats are supported, testing has so far primarily focused on TIFF files.
+EuBI-Bridge is built on several powerful libraries, including `zarr`, `bioio`, `dask-distributed` and `tensorstore`, among others. 
+Relying on `bioio` plugins for reading, EuBI-Bridge supports a wide range of input file formats. 
 
 
 ## Installation
 
-EuBI-Bridge can be installed via conda.
+The following steps can be followed to install EuBI-Bridge:
 
-### Installation via conda
+1. Create a conda environment with the required dependencies
 
 ```bash
-conda install -c euro-bioimaging -c conda-forge eubi-bridge
+mamba create -n eubizarr openjdk=8.* maven python=3.12
 ```
 
-**Important: EuBI-Bridge is currently only compatible with Python 3.10 due to conflicting dependencies. We are working on supporting a wider range of Python versions in future releases.**
+**Important: Specify either python=3.11 or python=3.12. EuBI-Bridge is currently only compatible with Python 3.11 or 3.12 due to conflicting dependencies. 
+We are working on supporting a wider range of Python versions in future releases.**
+
+ 
+2. Then activate the environment and install EuBI-Bridge via pip
+
+```bash
+conda activate eubizarr
+pip install --no-cache-dir eubi-bridge
+```
+
 
 ## Documentation
 
@@ -50,7 +61,14 @@ To convert each TIFF into a separate OME-Zarr container (unary conversion):
 eubi to_zarr multichannel_timeseries multichannel_timeseries_zarr
 ```  
 
-This produces:  
+Use the argument `--zarr_format` to specify the zarr format version to use.
+To create a zarr version 3 dataset, use `--zarr_format 3`:
+
+```bash
+eubi to_zarr multichannel_timeseries multichannel_timeseries_zarr --zarr_format 3
+```  
+
+Both of these commands will perform unary conversion, resulting in the following output:  
 
 ```bash
 multichannel_timeseries_zarr

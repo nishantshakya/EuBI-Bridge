@@ -4,36 +4,90 @@
 """
 
 import setuptools
+import os
 
-def parse_requirements(filename):
-    with open(filename, encoding='utf-8') as fid:
-        requires = [line.strip() for line in fid.readlines() if line]
-    return requires
+def get_requirements():
+    """Get requirements from requirements.txt or return default requirements."""
+    requirements = [
+        "aicspylibczi>=0.0.0",
+        "asciitree>=0.3.3",
+        "bfio>=0.0.0",
+        "bioformats_jar>=0.0.0",
+        "bioio-base>=0.0.0",
+        "bioio-bioformats==1.1.0",
+        "bioio-czi==2.1.0",
+        "bioio-imageio==1.1.0",
+        "bioio-lif==1.1.0",
+        "bioio-nd2==1.1.0",
+        "bioio-ome-tiff-fork-by-bugra==0.0.1b2",
+        "bioio-tifffile-fork-by-bugra>=0.0.1b2",
+        "cmake==4.0.2",
+        "dask>=2024.12.1",
+        "dask-jobqueue>=0.0.0",
+        "distributed>=2024.12.1",
+        "elementpath==5.0.1",
+        "fasteners==0.19",
+        "fire>=0.0.0",
+        "imageio==2.27.0",
+        "imageio-ffmpeg==0.6.0",
+        "natsort>=0.0.0",
+        "nd2>=0.0.0",
+        "numpy>=0.0.0",
+        # "openjdk==8.*",
+        "pydantic>=0.0.0",
+        "pylibczirw>=0.0.0",
+        "readlif==0.6.5",
+        "s3fs>=0.0.0",
+        "scipy>=1.8",
+        "tensorstore>=0.0.0",
+        "tifffile>=2025.5.21",
+        "validators==0.35.0",
+        "xarray>=0.0.0",
+        "xmlschema>=0.0.0",
+        "xmltodict==0.14.2",
+        "zarr>=3.0",
+        "zstandard>=0.0.0"
+    ]
+
+    # Optionally still try to read from requirements.txt if it exists
+    # if os.path.exists('../requirements.txt'):
+    #     with open('../requirements.txt', encoding='utf-8') as f:
+    #         requirements = [
+    #             line.strip() for line in f
+    #             if line.strip() and not line.startswith('#')
+    #         ]
+    return requirements
 
 def readme():
-   with open('README.txt') as f:
-       return f.read()
-
-requirements = parse_requirements('requirements.txt')
-
-packages = setuptools.find_packages()
-print(f'packages are: {packages}')
+    """Read the README file."""
+    for filename in ['README.md', 'README.rst', 'README.txt']:
+        if os.path.exists(filename):
+            with open(filename, encoding='utf-8') as f:
+                return f.read()
+    return ""
 
 setuptools.setup(
-    name = 'eubi_bridge',
-    version = '0.0.5b3',
-    author = 'Bugra Özdemir',
-    author_email = 'bugraa.ozdemir@gmail.com',
-    description = 'A package for converting datasets to OME-Zarr format.',
-    long_description = readme(),
-    long_description_content_type = "text/markdown",
-    url = 'https://github.com/Euro-BioImaging/EuBI-Bridge',
-    license = 'MIT',
-    packages = setuptools.find_packages(),
+    name='eubi_bridge',
+    version='0.0.7',
+    author='Bugra Özdemir',
+    author_email='bugraa.ozdemir@gmail.com',
+    description='A package for converting datasets to OME-Zarr format.',
+    long_description=readme(),
+    long_description_content_type="text/markdown",
+    url='https://github.com/Euro-BioImaging/EuBI-Bridge',
+    license='MIT',
+    packages=setuptools.find_packages(),
     include_package_data=True,
-    install_requires = requirements,
-    entry_points={'console_scripts': [
-                "eubi = eubi_bridge.cli:main"
-            ]
-        }
-    )
+    install_requires=get_requirements(),
+    python_requires='>=3.11,<3.13',
+    extras_require={
+        # Include CUDA variants if needed
+        'cuda11': ['cupy-cuda11x'],
+        'cuda12': ['cupy-cuda12x'],
+    },
+    entry_points={
+        'console_scripts': [
+            "eubi = eubi_bridge.cli:main"
+        ]
+    },
+)

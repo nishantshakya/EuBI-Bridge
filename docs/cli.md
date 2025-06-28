@@ -175,11 +175,11 @@ These are stored in the configuration file but can also be supplied directly to 
 | `--dimension_order`    | `bool` | Dimension order of the output dataset                    |
 | `--squeeze`            | `bool` | Drop the singlet dimensions from the output array        |
 | `--overwrite`          | `bool` | Overwrite existing Zarr data                             |
-| `--rechunk_method`     | `str`  | Rechunking method (`tasks`, `p2p` or `rechunker`)        |
+| `--rechunk_method`     | `str`  | Rechunking method (`tasks`, `p2p`)                       |
 | `--trim_memory`        | `bool` | Reduce memory usage                                      |
 | `--use_tensorstore`    | `bool` | Use TensorStore backend for writing                      |
 | `--use_gpu`            | `bool` | Run on GPU by using cupy arrays                          |
-| `--metadata_reader`    | `str`  | Metadata extraction method (`bfio` or `aicsimageio`)     |
+| `--metadata_reader`    | `str`  | Metadata extraction method (`bfio` or `bioio`)           |
 | `--save_omexml`        | `bool` | Save OME-XML metadata                                    |
 
 #### Downscale Parameters

@@ -6,6 +6,8 @@ from typing import Optional, Dict, Any, Tuple, Union
 import warnings
 import dask.array as da
 
+from eubi_bridge.logging_config import get_logger
+logger = get_logger(__name__)
 
 def read_czi(
     input_path: str,
@@ -74,13 +76,13 @@ def read_czi(
         if 'M' in nonstandard_dims:
             nonstandard_dims.remove('M')
         else:
-            warnings.warn(
+            logger.warning(
                 f"Mosaic tile dimension not found in {input_path}. "
                 "Ignoring 'as_mosaic' parameter."
             )
             as_mosaic = False
         if mosaic_tile_index != 0:
-            warnings.warn(
+            logger.warning(
                 "Mosaic tile index is ignored when reading the entire mosaic. "
                 "Set as_mosaic=False to read specific tiles."
             )

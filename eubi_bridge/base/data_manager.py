@@ -884,7 +884,7 @@ class BatchManager:
         final = {key: val for key, val in fulldict.items() if val is not None}
         return final
 
-    def _collect_chunks(self, **kwargs):  ### TODO: KALDIM 12 MAYIS
+    def _collect_chunks(self, **kwargs):  ###
         """
         Retrieves chunk specifications for image dimensions.
 

@@ -4,7 +4,7 @@ from eubi_bridge import fileset_io
 from eubi_bridge.base import scale, writers
 from eubi_bridge.ngff import defaults, multiscales
 from eubi_bridge.utils import convenience, dask_client_plugins
-from eubi_bridge.logging_config import setup_logging, get_logger
+from eubi_bridge.utils.logging_config import setup_logging, get_logger
 import logging
 
 # Set up default logging configuration when the package is imported

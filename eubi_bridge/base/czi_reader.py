@@ -6,7 +6,7 @@ from typing import Optional, Dict, Any, Tuple, Union
 import warnings
 import dask.array as da
 
-from eubi_bridge.logging_config import get_logger
+from eubi_bridge.utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 def read_czi(

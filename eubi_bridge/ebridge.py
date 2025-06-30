@@ -16,7 +16,7 @@ from eubi_bridge.utils.convenience import sensitive_glob, take_filepaths, is_zar
 from eubi_bridge.utils.metadata_utils import print_printable, get_printables
 
 import logging, warnings
-from eubi_bridge.logging_config import get_logger
+from eubi_bridge.utils.logging_config import get_logger
 
 # Set up logger for this module
 logger = get_logger(__name__)

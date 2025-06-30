@@ -225,18 +225,17 @@ class BridgeBase:
 
         axlist = [axes.index(x) for x in axes_of_concatenation if x in axes]
 
-        # TODO: make sure it all works when there is only single channel
         self.batchfile.batch_concatenate(axlist)
         # Get the refined arrays and sample paths
         (self.digested_arrays,
          self.digested_arrays_sample_paths,
          self.managers
          ) = self.batchfile.get_output_dicts(self._input_path)
-        self.compute_pixel_metadata(**kwargs)
+        self._compute_pixel_metadata(**kwargs)
         return self
 
 
-    def compute_pixel_metadata(self, # TODO: make this a hidden method and integrate with digest?
+    def _compute_pixel_metadata(self,
                                **kwargs
                                ):
         """Compute and update pixel metadata for the digested arrays.
@@ -266,7 +265,6 @@ class BridgeBase:
         # Update arrays and metadata
         for name, arr in self.digested_arrays.items():
             path = self.digested_arrays_sample_paths[name]
-            # channel = self.digested_arrays_channels[name]  # TODO: digest islemi chanellari concatenate etmeli
             manager = self.managers[name]
             manager.set_arraydata(arr)
             manager.update_meta(

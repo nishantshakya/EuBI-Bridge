@@ -352,7 +352,7 @@ class NGFFMetadataHandler:
             for i, channel in enumerate(self.metadata['omero']['channels'])
         ]
 
-    def parse_axes(self, ### TODO: adapt from the same method in __multiscales. Handle shorter unitlist.
+    def parse_axes(self, ###
                    axis_order: str,
                    units: Optional[List[str]] = None) -> None:
         """Update axes information with new axis order and units."""

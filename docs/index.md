@@ -17,9 +17,9 @@ Relying on `bioio` plugins for reading, EuBI-Bridge supports a wide range of inp
 - Parallelised batch conversion to OME-Zarr version **0.4 or 0.5 (with sharding)**
 - Conversion with multi-dimensional concatenation
 - Distributed conversion on HPC clusters
-- N-dimensional chunking
+- N-dimensional chunking/sharding
 - N-dimensional downscaling
-- OME-XML metadata export
+- Options for displaying/updating pixel metadata
 
 ---
 
@@ -39,7 +39,7 @@ Relying on `bioio` plugins for reading, EuBI-Bridge supports a wide range of inp
   <li>
     <p><strong>Activate the environment and install EuBI-Bridge via pip:</strong></p>
     <pre><code class="language-bash">conda activate eubizarr
-pip install --no-cache-dir eubi-bridge</code></pre>
+pip install --no-cache-dir eubi-bridge==0.0.7b3</code></pre>
   </li>
 </ol>
 <hr>

@@ -16,26 +16,33 @@ from eubi_bridge.utils.convenience import sensitive_glob, take_filepaths, is_zar
 from eubi_bridge.utils.metadata_utils import print_printable, get_printables
 
 import logging, warnings
+from eubi_bridge.utils.logging_config import get_logger
 
+# Set up logger for this module
+logger = get_logger(__name__)
+
+# Suppress noisy logs
 logging.getLogger('distributed.diskutils').setLevel(logging.CRITICAL)
+logging.getLogger('distributed.worker').setLevel(logging.WARNING)
+logging.getLogger('distributed.scheduler').setLevel(logging.WARNING)
 
-def verify_filepaths_for_cluster(
-                             filepaths
-                             ):
-    print(f"Verifying file extensions for distributed setup.")
+def verify_filepaths_for_cluster(filepaths):
+    """Verify that all file extensions are supported for distributed processing."""
+    logger.info("Verifying file extensions for distributed setup.")
     formats = ['lif', 'czi', 'lsm',
                'nd2', 'ome.tiff', 'ome.tif',
                'tiff', 'tif', 'zarr',
                'png', 'jpg', 'jpeg']
+    
     for filepath in filepaths:
         verified = any(list(map(lambda path, ext: path.endswith(ext), [filepath] * len(formats), formats)))
         if not verified:
             root, ext = os.path.splitext(filepath)
-            warnings.warn(f"Distributed execution is not supported for the {ext} format")
-            warnings.warn(f"Falling back on multithreading.")
+            logging.warning(f"Distributed execution is not supported for the {ext} format")
+            logger.warning(f"Falling back on multithreading.")
             break
     if verified:
-        print(f"File extensions were verified for distributed setup.")
+        logger.info("File extensions were verified for distributed setup.")
     return verified
 
 class EuBIBridge:
@@ -582,7 +589,7 @@ class EuBIBridge:
                                pool = ThreadPool(n_jobs)
                                )
             dask.config.set(config_dict)
-            print(f"Process running locally via multithreading.")
+            logger.info(f"Process running locally via multithreading.")
         else:
             if memory_limit == 'auto':
                 reserve_fraction = kwargs.get('reserve_memory_fraction', 0.1)
@@ -594,10 +601,10 @@ class EuBIBridge:
                 mem_per_worker = max(available_mem / n_jobs, min_per_worker)
                 mem_gb = mem_per_worker / (1 * 1024 ** 3)
                 memory_limit = f"{mem_gb} GB"
-                print(f"{memory_limit} memory has been allocated per worker.")
+                logger.info(f"{memory_limit} memory has been allocated per worker.")
 
             if on_slurm:
-                print(f"Process running on Slurm.")
+                logger.info(f"Process running on Slurm.")
                 cluster = SLURMCluster(
                                         cores=threads_per_worker,
                                         processes=1,
@@ -609,7 +616,7 @@ class EuBIBridge:
                                         # **worker_options
                                         )
             else:
-                print(f"Process running on local cluster.")
+                logger.info(f"Process running on local cluster.")
                 cluster = LocalCluster(
                                        n_workers=n_jobs,
                                        threads_per_worker=threads_per_worker,
@@ -622,7 +629,7 @@ class EuBIBridge:
             cluster.scale(n_jobs)
             self.client = Client(cluster)
             if verbose:
-                print(self.client.cluster)
+                logger.info(self.client.cluster)
         return self
 
     def to_zarr(self,
@@ -673,7 +680,7 @@ class EuBIBridge:
         if self.conversion_params['use_gpu'] and self.conversion_params['use_tensorstore']:
             raise ValueError("Tensorstore is not supported for GPU arrays.")
 
-        print(f"Base conversion initiated.")
+        logger.info(f"Base conversion initiated.")
         ###### Handle input data and metadata
         paths = take_filepaths(input_path, includes = includes, excludes = excludes)
 
@@ -722,7 +729,7 @@ class EuBIBridge:
             metadata_reader = self.conversion_params['metadata_reader'],
             **kwargs
             )
-        print(f"Metadata was extracted")
+        logger.info(f"Metadata was extracted")
         verbose = base._verbose
 
         if 'region_shape' in kwargs.keys():
@@ -752,12 +759,12 @@ class EuBIBridge:
                                            **self.conversion_params
                                            )
         ###### Downscale
-        print(f"Base conversion finished.")
+        logger.info(f"Base conversion finished.")
         t1 = time.time()
-        print(f"Elapsed for base conversion: {(t1 - t0) / 60} min.")
+        logger.info(f"Elapsed for base conversion: {(t1 - t0) / 60} min.")
         n_layers = self.downscale_params['n_layers']
         if n_layers > 1:
-            print(f"Downscaling initiated.")
+            logger.info(f"Downscaling initiated.")
             _ = downscale(
                       self.base_results,
                       **self.downscale_params,
@@ -767,7 +774,7 @@ class EuBIBridge:
                       verbose = verbose
                       ) # TODO: add to_cupy parameter here.
 
-            print(f"Downscaling finished.")
+            logger.info(f"Downscaling finished.")
 
         ###### Shutdown and clean up
         if self.client is not None:
@@ -780,7 +787,7 @@ class EuBIBridge:
             shutil.rmtree(self._dask_temp_dir)
 
         t1 = time.time()
-        print(f"Elapsed for conversion + downscaling: {(t1 - t0) / 60} min.")
+        logger.info(f"Elapsed for conversion + downscaling: {(t1 - t0) / 60} min.")
 
 
     def show_pixel_meta(self,
@@ -948,7 +955,7 @@ class EuBIBridge:
         pixel_meta_kwargs = {key: val for key, val in pixel_meta_kwargs_.items() if val is not None}
 
         base.digest(**pixel_meta_kwargs)
-        print(f"Metadata was extracted")
+        logger.info(f"Metadata was extracted")
 
         if self.client is not None:
             base.client = self.client
@@ -959,7 +966,7 @@ class EuBIBridge:
             if is_zarr_group(manager.path):
                 manager.sync_pyramid(self.conversion_params['save_omexml'])
             else:
-                print(f"Cannot update metadata for non-zarr path: {path}")
+                logger.info(f"Cannot update metadata for non-zarr path: {path}")
 
         # Shutdown the cluster and clean up temporary directories
         if self.client is not None:

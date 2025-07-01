@@ -7,7 +7,6 @@ import numpy as np
 from dask import delayed
 import dask
 import dask.array as da
-from eubi_bridge.base.czi_reader import read_czi
 from eubi_bridge.ngff.multiscales import Pyramid
 
 readable_formats = ('.ome.tiff', '.ome.tif', '.czi', '.lif',
@@ -44,6 +43,8 @@ def read_single_image_asarray(input_path, **kwargs):
     arr : dask.array.Array
         The image array.
     """
+    from eubi_bridge.utils.logging_config import get_logger
+    logger = get_logger(__name__)
     reader_kwargs = {}
     dimensions = 'TCZYX'
     if input_path.endswith('.zarr'):
@@ -53,7 +54,7 @@ def read_single_image_asarray(input_path, **kwargs):
     elif input_path.endswith(('.tif', '.tiff', '.lsm')):
         reader = read_tiff
     elif input_path.endswith('.czi'):
-        reader = read_czi
+        from eubi_bridge.base.czi_reader import read_czi as reader
         reader_kwargs = dict(
             as_mosaic = False,
             view_index = 0,
@@ -77,7 +78,7 @@ def read_single_image_asarray(input_path, **kwargs):
         from bioio_bioformats.reader import Reader as reader
     verbose = kwargs.get('verbose', False)
     if verbose:
-        print(f"Reading with {reader.__qualname__}.")
+        logger.info(f"Reading with {reader.__qualname__}.")
     im = reader(input_path, **reader_kwargs)
     if isinstance(im, da.Array):
         assert im.ndim == 5

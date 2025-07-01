@@ -26,7 +26,7 @@ Convert each file in `input_dir` into an OME-Zarr container, saving the result i
 eubi to_zarr /path/to/input_dir /path/to/output_dir
 ```
 
-Convert to OME-Zarr with zarr version 3:
+Convert to OME-Zarr **version 0.5** with zarr version 3:
 
 ```bash
 eubi to_zarr /path/to/input_dir /path/to/output_dir --zarr_format 3
@@ -39,6 +39,8 @@ Exclude files with `thumbs` in the filename:
 ```bash
 eubi to_zarr /path/to/input_dir /path/to/output_dir --zarr_format 3 --excludes 'thumbs'
 ```
+
+Note that this option is especially useful to filter out non-image files that may be present in the input directory.
 
 **Wildcard filtering:**
 

@@ -43,7 +43,7 @@ def read_single_image_asarray(input_path, **kwargs):
     arr : dask.array.Array
         The image array.
     """
-    from eubi_bridge.logging_config import get_logger
+    from eubi_bridge.utils.logging_config import get_logger
     logger = get_logger(__name__)
     reader_kwargs = {}
     dimensions = 'TCZYX'

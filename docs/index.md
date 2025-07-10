@@ -30,7 +30,7 @@ Relying on `bioio` plugins for reading, EuBI-Bridge supports a wide range of inp
 <ol>
   <li>
     <p><strong>Create a conda environment with the required dependencies:</strong></p>
-    <pre><code class="language-bash">mamba create -n eubizarr openjdk=8.* maven python=3.12</code></pre>
+    <pre><code class="language-bash">mamba create -n eubizarr openjdk=11.* maven python=3.12</code></pre>
     <blockquote>
       <strong>ℹ️ Specify either python=3.11 or python=3.12.
       EuBI-Bridge is currently only compatible with Python 3.11 or 3.12 due to conflicting dependencies. We are working on supporting a wider range of Python versions in future releases.</strong>

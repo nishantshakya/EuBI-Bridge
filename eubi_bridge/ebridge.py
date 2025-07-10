@@ -1,6 +1,5 @@
 import shutil, ctypes, time, os, zarr, pprint, psutil, dask, copy
 import numpy as np, os, glob, tempfile
-from eubi_bridge.base.data_manager import BatchManager
 from multiprocessing.pool import ThreadPool
 
 from dask import array as da
@@ -11,12 +10,13 @@ from typing import Union
 
 # from eubi_bridge.ngff.multiscales import Pyramid
 # from eubi_bridge.ngff import defaults
+from eubi_bridge.base.data_manager import BatchManager
 from eubi_bridge.ebridge_base import BridgeBase, downscale
-from eubi_bridge.utils.convenience import sensitive_glob, take_filepaths, is_zarr_group
+from eubi_bridge.utils.convenience import take_filepaths, is_zarr_group
 from eubi_bridge.utils.metadata_utils import print_printable, get_printables
+from eubi_bridge.utils.logging_config import get_logger
 
 import logging, warnings
-from eubi_bridge.utils.logging_config import get_logger
 
 # Set up logger for this module
 logger = get_logger(__name__)

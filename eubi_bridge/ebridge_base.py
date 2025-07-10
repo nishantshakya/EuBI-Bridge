@@ -16,7 +16,8 @@ import numpy as np
 from eubi_bridge.base.data_manager import BatchManager
 from eubi_bridge.base.readers import read_single_image_asarray
 from eubi_bridge.base.writers import store_arrays
-from eubi_bridge.fileset_io import FileSet, BatchFile
+# from eubi_bridge.fileset_io import FileSet
+from eubi_bridge.fileset_io import BatchFile
 from eubi_bridge.ngff.multiscales import Pyramid
 from eubi_bridge.ngff.defaults import unit_map, scale_map, default_axes
 from eubi_bridge.utils.convenience import (

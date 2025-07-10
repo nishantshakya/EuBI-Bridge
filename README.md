@@ -18,7 +18,7 @@ The following steps can be followed to install EuBI-Bridge:
 1. Create a conda environment with the required dependencies
 
 ```bash
-mamba create -n eubizarr openjdk=8.* maven python=3.12
+mamba create -n eubizarr openjdk=11.* maven python=3.12
 ```
 
 **Important: Specify either python=3.11 or python=3.12. EuBI-Bridge is currently only compatible with Python 3.11 or 3.12 due to conflicting dependencies. 
@@ -29,7 +29,7 @@ We are working on supporting a wider range of Python versions in future releases
 
 ```bash
 conda activate eubizarr
-pip install --no-cache-dir eubi-bridge==0.0.7b3
+pip install --no-cache-dir eubi-bridge==0.0.7b4
 ```
 
 

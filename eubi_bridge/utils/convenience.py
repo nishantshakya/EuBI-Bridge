@@ -324,15 +324,18 @@ def take_filepaths(input_path: str,
                    excludes: bool = None
                    ):
 
+    original_input_path = input_path
+
     if os.path.isfile(input_path) or input_path.endswith('.zarr'):
         dirname = os.path.dirname(input_path)
         basename = os.path.basename(input_path)
+        if len(dirname) == 0:
+            dirname = '.'
         input_path = f"{dirname}/*{basename}"
 
     if not '*' in input_path and not input_path.endswith('.zarr'):
         input_path = os.path.join(input_path, '**')
 
-    # print(input_path)
     if not '*' in input_path:
         input_path_ = os.path.join(input_path, '**')
     else:
@@ -346,5 +349,7 @@ def take_filepaths(input_path: str,
                         )
                  )
     paths = list(filter(lambda path: not path.endswith('zarr.json'), paths))
+    if len(paths) == 0:
+        raise ValueError(f"No valid paths found for {original_input_path}")
     return sorted(paths)
 

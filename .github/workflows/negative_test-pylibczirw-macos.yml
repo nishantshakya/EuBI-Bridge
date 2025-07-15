@@ -1,11 +1,11 @@
-name: Test pylibczirw on macOS without cmake, zlib and boost
+name: Test pylibczirw binary wheel install on macOS (ARM)
 
 on:
   workflow_dispatch:
 
 jobs:
   test:
-    runs-on: macos-latest
+    runs-on: macos-latest  # This is an ARM runner (Apple Silicon)
 
     steps:
       - name: Checkout repo
@@ -23,7 +23,8 @@ jobs:
         run: |
           conda install -y -c conda-forge openjdk=11.* maven
 
-      - name: Install eubi-bridge via pip
+      - name: Install eubi-bridge (binary-only test)
         shell: bash -l {0}
         run: |
-          pip install --no-cache-dir eubi-bridge==0.0.7b4
+          pip install --only-binary=:all: --no-cache-dir eubi-bridge==0.0.7b4
+

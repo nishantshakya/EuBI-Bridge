@@ -353,3 +353,245 @@ def take_filepaths(input_path: str,
         raise ValueError(f"No valid paths found for {original_input_path}")
     return sorted(paths)
 
+
+def take_filepaths_and_parameters_from_csv(input_path: str,
+                                           includes: bool = None,
+                                           excludes: bool = None
+                                           ) -> list:
+    """Take filepaths and conversion parameters from a CSV file.
+
+    Supports two formats:
+    1. With header row and values directly in columns:
+       filepath,zarr_format,time_chunk,channel_chunk,z_chunk
+       /path/to/file.tif,2,1,1,64
+
+    2. Without header (key=value format):
+       /path/to/file.tif,zarr_format=2,time_chunk=1,channel_chunk=1,z_chunk=64
+    """
+    import csv
+    from pathlib import Path
+    import json
+
+    results = []
+
+    try:
+        with open(input_path, 'r') as csvfile:
+            # Read the first line to determine the format
+            first_line = csvfile.readline().strip()
+            csvfile.seek(0)  # Reset file pointer
+
+            # Check if first line is a header (contains 'filepath' and no '=')
+            has_header = 'filepath' in first_line and '=' not in first_line
+
+            reader = csv.reader(csvfile)
+
+            if has_header:
+                # Read header and remove it from the reader
+                header = next(reader)
+                header = [h.strip() for h in header]
+
+                for row in reader:
+                    if not row:  # Skip empty rows
+                        continue
+
+                    filepath = row[0].strip()
+                    if not filepath:  # Skip if filepath is empty
+                        continue
+
+                    # Initialize parameters with defaults
+                    params = {
+                        "zarr_format": 2,
+                        "time_chunk": 1,
+                        "channel_chunk": 1,
+                        "z_chunk": 96,
+                        "y_chunk": 96,
+                        "x_chunk": 96,
+                        "time_shard_coef": 1,
+                        "channel_shard_coef": 1,
+                        "z_shard_coef": 3,
+                        "y_shard_coef": 3,
+                        "x_shard_coef": 3,
+                        "time_range": None,
+                        "channel_range": None,
+                        "z_range": None,
+                        "y_range": None,
+                        "x_range": None,
+                        "dimension_order": "tczyx",
+                        "compressor": "blosc",
+                        "compressor_params": {},
+                        "overwrite": False,
+                        "use_tensorstore": False,
+                        "use_gpu": False,
+                        "rechunk_method": "tasks",
+                        "trim_memory": False,
+                        "metadata_reader": "bfio",
+                        "save_omexml": True,
+                        "squeeze": False
+                    }
+
+                    # Map header to parameters
+                    for i, value in enumerate(row[1:], 1):  # Skip filepath column
+                        if i < len(header):
+                            key = header[i].strip()
+                            if key in params:
+                                # Convert value to appropriate type
+                                value = value.strip()
+                                if value.lower() == 'true':
+                                    params[key] = True
+                                elif value.lower() == 'false':
+                                    params[key] = False
+                                elif value.lower() == 'none' or value == '':
+                                    params[key] = None
+                                elif value.isdigit():
+                                    params[key] = int(value)
+                                else:
+                                    try:
+                                        params[key] = float(value)
+                                    except ValueError:
+                                        params[key] = value  # Keep as string
+
+                    results.append({
+                        'filepath': Path(filepath).resolve(),
+                        'parameters': params
+                    })
+            else:
+                # Original key=value format
+                for row in reader:
+                    if not row:  # Skip empty rows
+                        continue
+
+                    filepath = row[0].strip()
+                    if not filepath:  # Skip if filepath is empty
+                        continue
+
+                    # Initialize parameters with defaults
+                    params = {
+                        "zarr_format": 2,
+                        "time_chunk": 1,
+                        "channel_chunk": 1,
+                        "z_chunk": 96,
+                        "y_chunk": 96,
+                        "x_chunk": 96,
+                        "time_shard_coef": 1,
+                        "channel_shard_coef": 1,
+                        "z_shard_coef": 3,
+                        "y_shard_coef": 3,
+                        "x_shard_coef": 3,
+                        "time_range": None,
+                        "channel_range": None,
+                        "z_range": None,
+                        "y_range": None,
+                        "x_range": None,
+                        "dimension_order": "tczyx",
+                        "compressor": "blosc",
+                        "compressor_params": {},
+                        "overwrite": False,
+                        "use_tensorstore": False,
+                        "use_gpu": False,
+                        "rechunk_method": "tasks",
+                        "trim_memory": False,
+                        "metadata_reader": "bfio",
+                        "save_omexml": True,
+                        "squeeze": False
+                    }
+
+                    # Process parameters in key=value format
+                    for param_str in row[1:]:
+                        param_str = param_str.strip()
+                        if not param_str or '=' not in param_str:
+                            continue
+
+                        key, value = param_str.split('=', 1)
+                        key = key.strip()
+                        value = value.strip()
+
+                        if key in params:
+                            # Convert value to appropriate type
+                            if value.lower() == 'true':
+                                params[key] = True
+                            elif value.lower() == 'false':
+                                params[key] = False
+                            elif value.lower() == 'none' or value == '':
+                                params[key] = None
+                            elif value.isdigit():
+                                params[key] = int(value)
+                            else:
+                                try:
+                                    params[key] = float(value)
+                                except ValueError:
+                                    params[key] = value  # Keep as string
+
+                    results.append({
+                        'filepath': Path(filepath).resolve(),
+                        'parameters': params
+                    })
+
+    except FileNotFoundError:
+        raise FileNotFoundError(f"CSV file not found: {input_path}")
+    except Exception as e:
+        raise Exception(f"Error reading CSV file: {str(e)}")
+
+    return results
+
+
+# res = take_filepaths_and_parameters_from_csv(f"/home/oezdemir/PycharmProjects/eubizarr1/sample.csv")
+
+def autocompute_chunk_shape(
+        array_shape: Tuple[int, ...],
+        axes: str,
+        target_chunk_mb: float = 1.0,
+        dtype: type = np.uint16
+) -> Tuple[int, ...]:
+    """
+    Compute an appropriate chunk shape for a multi-dimensional array.
+
+    The function calculates chunk dimensions such that:
+    - Time ('t') and channel ('c') dimensions are always chunked as 1
+    - Spatial dimensions are chunked to approximately reach the target chunk size
+    - Chunk dimensions never exceed array dimensions
+
+    Args:
+        array_shape: Tuple of integers representing the shape of the array
+        axes: String specifying the axis order (e.g., 'tczyx', 'zyx', 'cyx')
+        target_chunk_mb: Target chunk size in megabytes (default: 1MB)
+        dtype: Data type of the array (default: uint16)
+
+    Returns:
+        Tuple of chunk sizes matching the input array dimensions
+
+    Example:
+        >>> autocompute_chunk_shape((1, 3, 512, 512, 512), 'tczyx')
+        (1, 1, 64, 64, 64)  # For 1MB chunks with uint16 data
+    """
+    if len(array_shape) != len(axes):
+        raise ValueError(f"Length of array_shape ({len(array_shape)}) must match length of axes ({len(axes)})")
+
+    # Convert target size to bytes
+    chunk_bytes = int(target_chunk_mb * 1024 * 1024)
+    element_size = np.dtype(dtype).itemsize
+    max_elements = chunk_bytes // element_size
+
+    # Identify spatial axes (everything except 't' and 'c')
+    spatial_axes = [i for i, ax in enumerate(axes) if ax not in 'tc']
+
+    if not spatial_axes:
+        # If no spatial axes, just return ones
+        return (1,) * len(axes)
+
+    # Calculate base chunk size for spatial dimensions
+    spatial_dims = [array_shape[i] for i in spatial_axes]
+    base_chunk = int(round((max_elements) ** (1.0 / len(spatial_axes))))
+
+    # Adjust chunks to fit within array dimensions
+    chunks = []
+    for i, (dim, ax) in enumerate(zip(array_shape, axes)):
+        if ax in 'tc':
+            # Time and channel dimensions are always 1
+            chunks.append(1)
+        else:
+            # For spatial dimensions, use base_chunk but not larger than dimension size
+            chunk_size = min(base_chunk, dim)
+            # Ensure chunk size is at least 1
+            chunks.append(max(1, chunk_size))
+
+    return tuple(chunks)

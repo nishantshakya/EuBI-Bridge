@@ -1,6 +1,6 @@
 import zarr
 from pathlib import Path
-from typing import Optional, Dict, List, Any, Union, Iterable, ClassVar
+from typing import Optional, Dict, List, Any, Tuple, Union, Iterable, ClassVar
 from dataclasses import dataclass
 import copy
 import numpy as np
@@ -33,8 +33,14 @@ def generate_channel_metadata(num_channels,
 
     channels = []
     import numpy as np
-    min = 0
-    max = np.iinfo(dtype).max
+
+    if dtype is not None and np.issubdtype(dtype, np.integer):
+        min, max = np.iinfo(dtype).min, np.iinfo(dtype).max
+    elif dtype is not None and np.issubdtype(dtype, np.floating):
+        min, max = np.finfo(dtype).min, np.finfo(dtype).max
+    else:
+        raise ValueError(f"Unsupported dtype {dtype}")
+
     for i in range(num_channels):
         color = default_colors[i] if i < len(default_colors) else f"{i*40%256:02X}{i*85%256:02X}{i*130%256:02X}"
         channel = {
@@ -260,6 +266,7 @@ class NGFFMetadataHandler:
 
     def save_changes(self) -> None:
         """Save current metadata to connected zarr group."""
+
         if not self._pending_changes:
             return
         if self.zarr_group is None:
@@ -270,7 +277,6 @@ class NGFFMetadataHandler:
         else:
             self.zarr_group.attrs['multiscales'] = self.metadata['multiscales']
             if 'omero' in self.metadata:
-                # print(f"omero meta: {self.metadata['omero']}")
                 self.zarr_group.attrs['omero'] = self.metadata['omero']
             if '_creator' in self.metadata:
                 self.zarr_group.attrs['_creator'] = self.metadata['_creator']
@@ -304,10 +310,14 @@ class NGFFMetadataHandler:
                     label: str = None,
                     dtype = None) -> None:
         """Add a channel to the OMERO metadata."""
-
-        assert dtype is not None
+        assert dtype is not None, f"dtype cannot be None"
         min = 0
-        max = np.iinfo(dtype).max if np.issubdtype(dtype, np.integer) else np.finfo(dtype).max
+        if np.issubdtype(dtype, np.integer):
+            max = int(np.iinfo(dtype).max)
+        elif np.issubdtype(dtype, np.floating):
+            max = float(np.finfo(dtype).max)
+        else:
+            raise ValueError(f"Unsupported dtype {dtype}")
         
         if 'omero' not in self.metadata:
             self.metadata['omero'] = {
@@ -596,6 +606,63 @@ class NGFFMetadataHandler:
         return self
 
 
+def calculate_n_layers(shape: Tuple[int, ...],
+                       scale_factor: Union[int, float, Tuple[Union[int, float], ...]],
+                       min_layer_size: int = 64) -> int:
+    """
+    Calculate the number of downscaling layers until one dimension becomes smaller than min_layer_size.
+    Only considers dimensions with scale_factor >= 2 for downscaling.
+
+    Args:
+        shape: Tuple of integers representing the shape of the array (e.g., (t, c, z, y, x))
+        scale_factor: Either a single number (applied to all dimensions) or a tuple of numbers
+                     (one per dimension) representing the downscaling factor for each dimension.
+                     Dimensions with scale_factor < 2 will not limit the number of downscaling layers.
+        min_layer_size: Minimum size allowed for any dimension in the pyramid
+
+    Returns:
+        int: Number of downscaling layers possible before any dimension becomes smaller than min_layer_size
+
+    Example:
+        >>> # Only z,y,x dimensions will be considered for downscaling (scale_factor >= 2)
+        >>> calculate_n_layers((100, 3, 512, 512, 512), (1, 1, 2, 2, 2), min_layer_size=64)
+        3  # Because 512 -> 256 -> 128 -> 64 (stops before 32 which is < 64)
+
+        >>> # If all scale factors are < 2, return 1 (just the original)
+        >>> calculate_n_layers((100, 3, 512, 512, 512), (1, 1, 1.5, 1.5, 1.5), min_layer_size=64)
+        1
+    """
+    if isinstance(scale_factor, (int, float)):
+        scale_factor = (scale_factor,) * len(shape)
+
+    if len(scale_factor) != len(shape):
+        raise ValueError(f"scale_factor length ({len(scale_factor)}) must match shape length ({len(shape)})")
+
+    shape_array = np.array(shape, dtype=int)
+    scale_array = np.array(scale_factor, dtype=float)
+
+    # Identify dimensions that will be downscaled (scale_factor >= 2)
+    downscale_dims = scale_array >= 2
+
+    # If no dimensions are being downscaled, return 1 (just the original)
+    if not np.any(downscale_dims):
+        return 1
+
+    # Calculate layers only for dimensions that will be downscaled
+    downscale_shapes = shape_array[downscale_dims]
+    downscale_factors = scale_array[downscale_dims]
+
+    # Calculate number of layers for each downscaled dimension
+    n_layers_per_dim = np.floor(np.log(downscale_shapes / min_layer_size) / np.log(downscale_factors))
+
+    # Find the limiting dimension (smallest number of layers)
+    if len(n_layers_per_dim) == 0:
+        return 1
+
+    n_layers = int(np.min(n_layers_per_dim)) + 1
+
+    # Ensure at least 1 layer (the original) is always returned
+    return max(1, n_layers)
 
 
 class Pyramid:
@@ -742,7 +809,12 @@ class Pyramid:
                           backend='numpy',
                           **kwargs
                           ):
+        min_layer_size = kwargs.get('min_layer_size', 64)
+
         darr = self.base_array
+        shape = darr.shape
+        if n_layers in (None, 'default', 'auto'):
+            n_layers = calculate_n_layers(shape, scale_factor, min_layer_size)
         if scale_factor is None:
             scale_factor = tuple([defaults.scale_factor_map[key] for key in self.axes])
         scale = self.meta.scales['0']

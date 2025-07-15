@@ -1,6 +1,5 @@
 import copy
 import os, itertools, tempfile, shutil, threading
-import pprint
 import zarr, dask, numcodecs
 from zarr import codecs
 from zarr.storage import LocalStore
@@ -12,10 +11,18 @@ from pathlib import Path
 from typing import List, Tuple, Dict, Union, Any, Tuple, Optional
 ### internal imports
 from eubi_bridge.ngff.multiscales import NGFFMetadataHandler  #Multimeta
-from eubi_bridge.utils.convenience import get_chunksize_from_array, is_zarr_group #, retry_decorator
+from eubi_bridge.utils.convenience import (
+    get_chunksize_from_array,
+    is_zarr_group,
+    autocompute_chunk_shape,
+    #, retry_decorator
+)
+from eubi_bridge.utils.logging_config import get_logger
 
 
 import logging, warnings
+
+logger = get_logger(__name__)
 
 logging.getLogger('distributed.diskutils').setLevel(logging.CRITICAL)
 
@@ -466,13 +473,13 @@ def _get_or_create_multimeta(gr: zarr.Group,
         handler.parse_axes(axis_order=axis_order, units=unit_list)
     return handler
 
-
 def store_arrays(arrays: Dict[str, Dict[str, da.Array]], # flatarrays
                  output_path: Union[Path, str],
                  axes: list, # flataxes
                  scales: Dict[str, Dict[str, Tuple[float, ...]]], # flatscales
                  units: list, # flatunits
-                 output_chunks: Tuple[int, ...] = None,
+                 auto_chunk: bool = True,
+                 output_chunks: Dict[str,Tuple[int, ...]] = None,
                  output_shard_coefficients: Tuple[int, ...] = None,
                  compute: bool = False,
                  overwrite: bool = False,
@@ -488,6 +495,7 @@ def store_arrays(arrays: Dict[str, Dict[str, da.Array]], # flatarrays
     verbose = kwargs.get('verbose', False)
     zarr_format = kwargs.get('zarr_format', 2)
     output_shards = kwargs.get('output_shards', None)
+    target_chunk_mb = kwargs.get('target_chunk_mb', 1)
 
     writer_func = write_with_tensorstore if use_tensorstore else write_with_zarrpy
 
@@ -495,10 +503,28 @@ def store_arrays(arrays: Dict[str, Dict[str, da.Array]], # flatarrays
     results = {}
 
     for key, arr in arrays.items():
+        dtype = kwargs.get('dtype', arr.dtype)
+        if dtype is None:
+            dtype = arr.dtype
+        else:
+            if isinstance(dtype, str):
+                dtype = np.dtype(dtype)
+            arr = arr.astype(dtype)
+
         flataxes = axes[key]
         flatscale = scales[key]
         flatunit = units[key]
         flatchunks = output_chunks[key]
+
+        if auto_chunk:
+            flatchunks = autocompute_chunk_shape(arr.shape,
+                                                 axes=flataxes,
+                                                 target_chunk_mb=target_chunk_mb,
+                                                 dtype=dtype
+                                                 )
+            if verbose:
+                logger.info(f"Auto-chunking {key} to {flatchunks}")
+
         flatchannels = channel_meta[key] if channel_meta is not None else None
 
         chunks = np.minimum(flatchunks or arr.chunksize, arr.shape).tolist()
@@ -548,17 +574,16 @@ def store_arrays(arrays: Dict[str, Dict[str, da.Array]], # flatarrays
         elif flatchannels is None:
             pass
         else:
-            dtype = kwargs.get('dtype', arr.dtype)
             for channel in flatchannels:
                 meta.add_channel(color = channel['color'],
                                  label = channel['label'],
-                                 dtype = dtype
+                                 dtype = dtype.str
                                  )
         meta.save_changes()
 
         if verbose:
-            print(f"Writer function: {writer_func}")
-            print(f"Rechunk method: {rechunk_method}")
+            logger.info(f"Writer function: {writer_func}")
+            logger.info(f"Rechunk method: {rechunk_method}")
 
         results[key] = writer_func(arr=arr,
                                    store_path=key,  # compressor = compressor, dtype = dtype,

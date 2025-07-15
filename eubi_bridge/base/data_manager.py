@@ -200,8 +200,8 @@ def create_ome_xml( # make 5D omexml
         "int8": PixelType.INT8,
         "int16": PixelType.INT16,
         "int32": PixelType.INT32,
-        "float": PixelType.FLOAT,
-        "double": PixelType.DOUBLE,
+        "float32": PixelType.FLOAT,
+        "float64": PixelType.DOUBLE,
     }
 
     if dtype not in dtype_map:

@@ -305,10 +305,9 @@ class NGFFMetadataHandler:
                     dtype = None) -> None:
         """Add a channel to the OMERO metadata."""
 
-        # import numpy as np
         assert dtype is not None
         min = 0
-        max = np.iinfo(dtype).max
+        max = np.iinfo(dtype).max if np.issubdtype(dtype, np.integer) else np.finfo(dtype).max
         
         if 'omero' not in self.metadata:
             self.metadata['omero'] = {

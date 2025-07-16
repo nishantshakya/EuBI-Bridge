@@ -361,8 +361,6 @@ class BridgeBase:
 
 
     def _process_chunking_configurations(self,
-                                         # array_shapes,
-                                         # dtypes,
                                          chunk_sizes,
                                          shard_coefficients,
                                          axis_mappings,
@@ -544,14 +542,14 @@ def downscale( # TODO: add a min_size parameter here.
     pyrs = [Pyramid(path) for path in gr_paths] # TODO: add a to_cupy parameter here.
     result_collection = []
 
-    min_layer_size = kwargs.get('min_layer_size', None)
+    min_dimension_size = kwargs.get('min_dimension_size', None)
     for pyr in pyrs:
         scale_factor = [scale_factor_dict[ax] for ax in pyr.meta.axis_order]
 
         pyr.update_downscaler(scale_factor=scale_factor,
                               n_layers=n_layers,
                               downscale_method=downscale_method,
-                              min_layer_size=min_layer_size
+                              min_dimension_size=min_dimension_size
                               )
         grpath = pyr.gr.store.root
         grname = os.path.basename(grpath)

@@ -29,9 +29,27 @@ We are working on supporting a wider range of Python versions in future releases
 
 ```bash
 conda activate eubizarr
-pip install --no-cache-dir eubi-bridge==0.0.7b4
+pip install --no-cache-dir eubi-bridge==0.0.8b1
 ```
 
+#### Troubleshooting
+
+If you receive a `Building wheel` error such as:
+
+```bash
+  Building wheel for ... error
+  error: subprocess-exited-with-error
+  
+  × python setup.py bdist_wheel did not run successfully.
+  │ exit code: 1
+```
+then try the following:
+
+```bash
+# In the `eubizarr` environment
+mamba install cmake zlib boost # preinstall dependencies that can help build from source
+pip install --no-cache-dir eubi-bridge==0.0.8b1 # try installing again with the dependencies available
+````
 
 ## Documentation
 

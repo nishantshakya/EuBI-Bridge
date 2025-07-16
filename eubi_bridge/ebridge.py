@@ -236,7 +236,7 @@ class EuBIBridge:
                 y_scale_factor = 2,
                 x_scale_factor = 2,
                 n_layers=None,
-                min_layer_size=64,
+                min_dimension_size=64,
                 downscale_method='simple',
             )
         )
@@ -513,7 +513,7 @@ class EuBIBridge:
     def configure_downscale(self,
                             downscale_method: str = 'default',
                             n_layers: int = 'default',
-                            min_layer_size: int = 'default',
+                            min_dimension_size: int = 'default',
                             time_scale_factor: int = 'default',
                             channel_scale_factor: int = 'default',
                             z_scale_factor: int = 'default',
@@ -540,7 +540,7 @@ class EuBIBridge:
         params = {
             'downscale_method': downscale_method,
             'n_layers': n_layers,
-            'min_layer_size': min_layer_size,
+            'min_dimension_size': min_dimension_size,
             'time_scale_factor': time_scale_factor,
             "channel_scale_factor": channel_scale_factor,
             "z_scale_factor": z_scale_factor,

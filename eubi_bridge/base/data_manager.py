@@ -1,6 +1,6 @@
 import zarr, natsort
 
-import shutil, time, os, zarr, pprint, psutil, dask, gc
+import shutil, time, os, zarr, psutil, dask, gc
 import numpy as np, os, glob, tempfile, importlib
 
 from ome_types.model import OME, Image, Pixels, Channel #TiffData, Plane
@@ -14,7 +14,7 @@ from typing import Union
 
 from eubi_bridge.ngff.multiscales import Pyramid
 from eubi_bridge.ngff.defaults import unit_map, scale_map, default_axes
-from eubi_bridge.utils.convenience import sensitive_glob, is_zarr_group, is_zarr_array, take_filepaths
+from eubi_bridge.utils.convenience import sensitive_glob, is_zarr_group, is_zarr_array, take_filepaths, autocompute_chunk_shape
 from eubi_bridge.base.readers import read_metadata_via_bioio_bioformats, read_metadata_via_extension, read_metadata_via_bfio
 
 
@@ -741,6 +741,19 @@ class ArrayManager:
 
     def split(self): ###TODO
         pass
+
+    def get_autocomputed_chunks(self,
+                                dtype = None
+                                ):
+        array_shape = self.array.shape
+        dtype = dtype or self.array.dtype
+        axes = self.axes
+        chunk_shape = autocompute_chunk_shape(array_shape = array_shape,
+                                              axes = axes,
+                                              dtype = dtype)
+        return chunk_shape
+
+
 
 class ChannelIterator:
     """

@@ -24,6 +24,7 @@ from eubi_bridge.utils.convenience import (
     take_filepaths
 )
 
+
 # Configure logging
 logging.getLogger('distributed.diskutils').setLevel(logging.CRITICAL)
 warnings.filterwarnings('ignore')
@@ -122,6 +123,7 @@ class BridgeBase:
         - If the input path is a directory, can read single or multiple files from it.
         - If the input path is a file, can read a single image from it.
         - If the input path is a file with multiple series, can currently only read one series from it. Reading multiple series is currently not supported.
+        - If the input path is a csv file with filepaths and conversion parameters, can read the filepaths and conversion parameters from it.
         :return:
         """
         input_path = self._input_path # todo: make them settable from this method?
@@ -131,6 +133,8 @@ class BridgeBase:
         series = self._series
         zarr_format = self._zarr_format
         verbose = self._verbose
+
+
 
         if os.path.isfile(input_path) or input_path.endswith('.zarr'):
             dirname = os.path.dirname(input_path)
@@ -300,7 +304,11 @@ class BridgeBase:
         self.batchdata.to_cupy()
 
 
-    def _prepare_array_metadata(self, batch_manager, sample_path_mapping):
+    def _prepare_array_metadata(self,
+                                batch_manager,
+                                sample_path_mapping,
+                                autochunk = True
+                                ):
         """Prepare metadata dictionaries for array storage.
 
         Args:
@@ -508,7 +516,7 @@ class BridgeBase:
 
         return storage_results
 
-def downscale(
+def downscale( # TODO: add a min_size parameter here.
         gr_paths,
         time_scale_factor,
         channel_scale_factor,
@@ -534,12 +542,14 @@ def downscale(
     pyrs = [Pyramid(path) for path in gr_paths] # TODO: add a to_cupy parameter here.
     result_collection = []
 
+    min_dimension_size = kwargs.get('min_dimension_size', None)
     for pyr in pyrs:
         scale_factor = [scale_factor_dict[ax] for ax in pyr.meta.axis_order]
 
         pyr.update_downscaler(scale_factor=scale_factor,
                               n_layers=n_layers,
-                              downscale_method=downscale_method
+                              downscale_method=downscale_method,
+                              min_dimension_size=min_dimension_size
                               )
         grpath = pyr.gr.store.root
         grname = os.path.basename(grpath)

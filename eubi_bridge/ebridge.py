@@ -199,11 +199,13 @@ class EuBIBridge:
             ),                
             conversion = dict(
                 zarr_format = 2,
+                auto_chunk = True,
+                target_chunk_mb = 1,
                 time_chunk = 1,
                 channel_chunk = 1,
                 z_chunk = 96,
-                y_chunk=96,
-                x_chunk=96,
+                y_chunk = 96,
+                x_chunk = 96,
                 time_shard_coef = 1,
                 channel_shard_coef = 1,
                 z_shard_coef = 3,
@@ -224,7 +226,8 @@ class EuBIBridge:
                 trim_memory=False,
                 metadata_reader = 'bfio',
                 save_omexml = True,
-                squeeze = False
+                squeeze = False,
+                dtype = None
             ),
             downscale = dict(
                 time_scale_factor = 1,
@@ -232,7 +235,8 @@ class EuBIBridge:
                 z_scale_factor = 2,
                 y_scale_factor = 2,
                 x_scale_factor = 2,
-                n_layers=3,
+                n_layers=None,
+                min_dimension_size=64,
                 downscale_method='simple',
             )
         )
@@ -409,6 +413,8 @@ class EuBIBridge:
 
     def configure_conversion(self,
                              zarr_format: int = 'default',
+                             auto_chunk: bool = 'default',
+                             target_chunk_mb: float = 'default',
                              compressor: str = 'default',
                              compressor_params: dict = 'default',
                              time_chunk: int = 'default',
@@ -435,7 +441,8 @@ class EuBIBridge:
                              use_gpu: bool = 'default',
                              metadata_reader: str = 'default',
                              save_omexml: bool = 'default',
-                             squeeze: bool = 'default'
+                             squeeze: bool = 'default',
+                             dtype: str = 'default',
                              ):
         """
         Updates conversion configuration settings. To update the current default value for a parameter, provide that parameter with a value other than 'default'.
@@ -465,6 +472,8 @@ class EuBIBridge:
 
         params = {
             'zarr_format': zarr_format,
+            'auto_chunk': auto_chunk,
+            'target_chunk_mb': target_chunk_mb,
             'compressor': compressor,
             'compressor_params': compressor_params,
             "time_chunk": time_chunk,
@@ -491,7 +500,8 @@ class EuBIBridge:
             'use_gpu': use_gpu,
             'metadata_reader': metadata_reader,
             'save_omexml': save_omexml,
-            'squeeze': squeeze
+            'squeeze': squeeze,
+            'dtype': dtype
         }
 
         for key in params:
@@ -503,6 +513,7 @@ class EuBIBridge:
     def configure_downscale(self,
                             downscale_method: str = 'default',
                             n_layers: int = 'default',
+                            min_dimension_size: int = 'default',
                             time_scale_factor: int = 'default',
                             channel_scale_factor: int = 'default',
                             z_scale_factor: int = 'default',
@@ -529,6 +540,7 @@ class EuBIBridge:
         params = {
             'downscale_method': downscale_method,
             'n_layers': n_layers,
+            'min_dimension_size': min_dimension_size,
             'time_scale_factor': time_scale_factor,
             "channel_scale_factor": channel_scale_factor,
             "z_scale_factor": z_scale_factor,
@@ -763,11 +775,15 @@ class EuBIBridge:
         t1 = time.time()
         logger.info(f"Elapsed for base conversion: {(t1 - t0) / 60} min.")
         n_layers = self.downscale_params['n_layers']
-        if n_layers > 1:
+
+
+        if n_layers in (None, 'default', 'auto') or n_layers > 1:
             logger.info(f"Downscaling initiated.")
             _ = downscale(
                       self.base_results,
                       **self.downscale_params,
+                      auto_chunk = kwargs.get('auto_chunk', self.conversion_params['auto_chunk']),
+                      target_chunk_mb = kwargs.get('target_chunk_mb', self.conversion_params['target_chunk_mb']),
                       zarr_format = self.conversion_params['zarr_format'],
                       rechunk_method = self.conversion_params['rechunk_method'],
                       use_tensorstore = self.conversion_params['use_tensorstore'],

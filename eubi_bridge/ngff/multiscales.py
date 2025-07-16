@@ -1,6 +1,6 @@
 import zarr
 from pathlib import Path
-from typing import Optional, Dict, List, Any, Union, Iterable, ClassVar
+from typing import Optional, Dict, List, Any, Tuple, Union, Iterable, ClassVar
 from dataclasses import dataclass
 import copy
 import numpy as np
@@ -11,14 +11,14 @@ from eubi_bridge.base.scale import Downscaler
 def is_zarr_group(path: (str, Path)
                   ):
     try:
-        _ = zarr.open_group(path, mode = 'r')
+        _ = zarr.open_group(path, mode='r')
         return True
     except:
         return False
 
 
 def generate_channel_metadata(num_channels,
-                              dtype = np.uint16
+                              dtype=np.uint16
                               ):
     # Standard distinct microscopy colors
     default_colors = [
@@ -33,10 +33,17 @@ def generate_channel_metadata(num_channels,
 
     channels = []
     import numpy as np
-    min = 0
-    max = np.iinfo(dtype).max
+
+    if dtype is not None and np.issubdtype(dtype, np.integer):
+        min, max = np.iinfo(dtype).min, np.iinfo(dtype).max
+    elif dtype is not None and np.issubdtype(dtype, np.floating):
+        min, max = np.finfo(dtype).min, np.finfo(dtype).max
+    else:
+        raise ValueError(f"Unsupported dtype {dtype}")
+
     for i in range(num_channels):
-        color = default_colors[i] if i < len(default_colors) else f"{i*40%256:02X}{i*85%256:02X}{i*130%256:02X}"
+        color = default_colors[i] if i < len(
+            default_colors) else f"{i * 40 % 256:02X}{i * 85 % 256:02X}{i * 130 % 256:02X}"
         channel = {
             "color": color,
             "coefficient": 1,
@@ -166,7 +173,6 @@ class NGFFMetadataHandler:
             'name': self.multiscales['name']
         }
 
-
     def create_new(self, version: str = "0.5", name: str = "Series 0") -> 'NGFFMetadataHandler':
         """Create a new metadata handler with empty metadata of specified version."""
         self._validate_version_and_format(version, 3 if version == "0.5" else 2)
@@ -195,7 +201,7 @@ class NGFFMetadataHandler:
                     'version': '1.0'
                 }
             }
-        else: # version == "0.4"
+        else:  # version == "0.4"
             multiscale_metadata['version'] = version
             self.metadata = {
                 '_creator': {
@@ -224,7 +230,7 @@ class NGFFMetadataHandler:
             raise ValueError("Store must be a zarr group or path")
         if isinstance(store, zarr.Group):
             self.zarr_group = store
-        else: # isinstance(store, (str, Path))
+        else:  # isinstance(store, (str, Path))
             if is_zarr_group(store):
                 self.zarr_group = zarr.open_group(store, mode=mode)
                 # zarr_version = self.zarr_group.info._zarr_format
@@ -260,6 +266,7 @@ class NGFFMetadataHandler:
 
     def save_changes(self) -> None:
         """Save current metadata to connected zarr group."""
+
         if not self._pending_changes:
             return
         if self.zarr_group is None:
@@ -270,7 +277,6 @@ class NGFFMetadataHandler:
         else:
             self.zarr_group.attrs['multiscales'] = self.metadata['multiscales']
             if 'omero' in self.metadata:
-                # print(f"omero meta: {self.metadata['omero']}")
                 self.zarr_group.attrs['omero'] = self.metadata['omero']
             if '_creator' in self.metadata:
                 self.zarr_group.attrs['_creator'] = self.metadata['_creator']
@@ -298,17 +304,20 @@ class NGFFMetadataHandler:
         self.metadata['omero'] = omero_meta['omero']
         self._pending_changes = True
 
-
     def add_channel(self,
                     color: str = "808080",
                     label: str = None,
-                    dtype = None) -> None:
+                    dtype=None) -> None:
         """Add a channel to the OMERO metadata."""
-
-        assert dtype is not None
+        assert dtype is not None, f"dtype cannot be None"
         min = 0
-        max = np.iinfo(dtype).max if np.issubdtype(dtype, np.integer) else np.finfo(dtype).max
-        
+        if np.issubdtype(dtype, np.integer):
+            max = int(np.iinfo(dtype).max)
+        elif np.issubdtype(dtype, np.floating):
+            max = float(np.finfo(dtype).max)
+        else:
+            raise ValueError(f"Unsupported dtype {dtype}")
+
         if 'omero' not in self.metadata:
             self.metadata['omero'] = {
                 'channels': [],
@@ -351,7 +360,7 @@ class NGFFMetadataHandler:
             for i, channel in enumerate(self.metadata['omero']['channels'])
         ]
 
-    def parse_axes(self, ###
+    def parse_axes(self,  ###
                    axis_order: str,
                    units: Optional[List[str]] = None) -> None:
         """Update axes information with new axis order and units."""
@@ -474,7 +483,6 @@ class NGFFMetadataHandler:
     def channels(self):
         return self.get_channels()
 
-
     def validate_metadata(self) -> bool:
         """Validate current metadata structure."""
         if not self.metadata:
@@ -556,18 +564,18 @@ class NGFFMetadataHandler:
                       ):
         for pth, factor in scale_factors.items():
             new_scale = np.multiply(factor, reference_scale)
-            self.set_scale(pth, new_scale)#,hard)
+            self.set_scale(pth, new_scale)  # ,hard)
         return self
 
     def update_unitlist(self,
-                        unitlist = None,
+                        unitlist=None,
                         # hard=False
                         ):
         if isinstance(unitlist, tuple):
             unitlist = list(unitlist)
         assert isinstance(unitlist, list)
-        self.parse_axes(self.axis_order, unitlist#overwrite=True
-        )
+        self.parse_axes(self.axis_order, unitlist  # overwrite=True
+                        )
         # if hard:
         #     self.gr.attrs['multiscales'] = self.multimeta
         return self
@@ -596,6 +604,64 @@ class NGFFMetadataHandler:
         return self
 
 
+def calculate_n_layers(shape: Tuple[int, ...],
+                       scale_factor: Union[int, float, Tuple[Union[int, float], ...]],
+                       min_dimension_size: int = 64) -> int:
+    """
+    Calculate the number of downscaling layers until one dimension becomes smaller than min_dimension_size.
+    Only considers dimensions with scale_factor >= 2 for downscaling.
+
+    Args:
+        shape: Tuple of integers representing the shape of the array (e.g., (t, c, z, y, x))
+        scale_factor: Either a single number (applied to all dimensions) or a tuple of numbers
+                     (one per dimension) representing the downscaling factor for each dimension.
+                     Dimensions with scale_factor < 2 will not limit the number of downscaling layers.
+        min_dimension_size: Minimum size allowed for any dimension in the pyramid
+
+    Returns:
+        int: Number of downscaling layers possible before any dimension becomes smaller than min_dimension_size
+
+    Example:
+        >>> # Only z,y,x dimensions will be considered for downscaling (scale_factor >= 2)
+        >>> calculate_n_layers((100, 3, 512, 512, 512), (1, 1, 2, 2, 2), min_dimension_size=64)
+        3  # Because 512 -> 256 -> 128 -> 64 (stops before 32 which is < 64)
+
+        >>> # If all scale factors are < 2, return 1 (just the original)
+        >>> calculate_n_layers((100, 3, 512, 512, 512), (1, 1, 1.5, 1.5, 1.5), min_dimension_size=64)
+        1
+    """
+    if isinstance(scale_factor, (int, float)):
+        scale_factor = (scale_factor,) * len(shape)
+
+    if len(scale_factor) != len(shape):
+        raise ValueError(f"scale_factor length ({len(scale_factor)}) must match shape length ({len(shape)})")
+
+    shape_array = np.array(shape, dtype=int)
+    scale_array = np.array(scale_factor, dtype=float)
+
+    # Identify dimensions that will be downscaled (scale_factor >= 2)
+    downscale_dims = scale_array > 1
+
+    # If no dimensions are being downscaled, return 1 (just the original)
+    if not np.any(downscale_dims):
+        return 1
+
+    # Calculate layers only for dimensions that will be downscaled
+    downscale_shapes = shape_array[downscale_dims]
+    downscale_factors = scale_array[downscale_dims]
+
+    # Calculate number of layers for each downscaled dimension
+    n_layers_per_dim = np.floor(np.log(downscale_shapes / min_dimension_size) / np.log(downscale_factors))
+
+    # Find the number of layers for the largest dimension
+    if len(n_layers_per_dim) == 0:
+        return 1
+    argmax_largest_dim = np.argmax(downscale_shapes)
+    n_layers_per_largest_dim = n_layers_per_dim[argmax_largest_dim]
+
+    n_layers = int(n_layers_per_largest_dim) + 1
+    # Ensure at least 1 layer (the original) is always returned
+    return max(1, n_layers)
 
 
 class Pyramid:
@@ -627,7 +693,7 @@ class Pyramid:
             self.gr = zarr.open_group(store, mode='a')
             newmeta.connect_to_group(self.gr)
         else:
-            self.meta.create_new(version = version, name = "Series 0")
+            self.meta.create_new(version=version, name="Series 0")
         newmeta.save_changes()
         self.meta = newmeta
         return self
@@ -728,7 +794,7 @@ class Pyramid:
 
     def retag(self,
               new_tag: str,
-              hard = False
+              hard=False
               ):
         self.meta.retag(new_tag)
         if hard:
@@ -742,7 +808,12 @@ class Pyramid:
                           backend='numpy',
                           **kwargs
                           ):
+        min_dimension_size = kwargs.get('min_dimension_size', 64)
+
         darr = self.base_array
+        shape = darr.shape
+        if n_layers in (None, 'default', 'auto'):
+            n_layers = calculate_n_layers(shape, scale_factor, min_dimension_size)
         if scale_factor is None:
             scale_factor = tuple([defaults.scale_factor_map[key] for key in self.axes])
         scale = self.meta.scales['0']

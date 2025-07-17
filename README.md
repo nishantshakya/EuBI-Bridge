@@ -48,7 +48,7 @@ then try the following:
 ```bash
 # In the `eubizarr` environment
 mamba install cmake zlib boost # preinstall dependencies that can help build from source
-pip install --no-cache-dir eubi-bridge==0.0.8b1 # try installing again with the dependencies available
+pip install --no-cache-dir eubi-bridge==0.0.8b2 # try installing again with the dependencies available
 ````
 
 ## Documentation

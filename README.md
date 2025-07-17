@@ -29,7 +29,7 @@ We are working on supporting a wider range of Python versions in future releases
 
 ```bash
 conda activate eubizarr
-pip install --no-cache-dir eubi-bridge==0.0.8b1
+pip install --no-cache-dir eubi-bridge==0.0.8b2
 ```
 
 #### Troubleshooting

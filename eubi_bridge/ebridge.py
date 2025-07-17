@@ -267,6 +267,119 @@ class EuBIBridge:
         self._dask_temp_dir = None
         self.client = None
 
+    def _optimize_dask_config(self):
+        """Optimize Dask configuration for maximum conversion speed.
+
+        This configuration is tuned for high-performance data processing with Dask,
+        focusing on maximizing throughput while maintaining system stability.
+        The settings are optimized for I/O and CPU-bound workloads.
+        """
+
+        # Get system information for adaptive configuration
+        total_memory = psutil.virtual_memory().total
+        total_cores = psutil.cpu_count(logical=False) or psutil.cpu_count() or 4
+
+        # Calculate memory fractions based on available memory
+        memory_target = float(os.getenv('DASK_MEMORY_TARGET', '0.8'))
+        memory_spill = float(os.getenv('DASK_MEMORY_SPILL', '0.9'))
+        memory_pause = float(os.getenv('DASK_MEMORY_PAUSE', '0.95'))
+
+        dask.config.set({
+            # Task scheduling and execution
+            'optimization.fuse.active': True,
+            'optimization.fuse.ave-width': 10,  # Balanced fusion width
+            'optimization.fuse.subgraphs': True,
+            'optimization.fuse.rename-keys': True,
+            'optimization.culling.active': True,  # Remove unnecessary tasks
+            'optimization.rewrite.fuse': True,
+
+            # Memory management - adaptive based on system memory
+            'distributed.worker.memory.target': memory_target,
+            'distributed.worker.memory.spill': memory_spill,
+            'distributed.worker.memory.pause': memory_pause,
+            'distributed.worker.memory.terminate': 0.98,  # Terminate at 98%
+            'distributed.worker.memory.monitor-interval': '50ms' if total_memory < 32 * 1024 ** 3 else '100ms',
+            'distributed.worker.memory.recent-to-old-time': '3s',  # Faster memory cleanup
+
+            # Communication settings
+            'distributed.comm.compression': 'auto',  # Auto compression for large data
+            'distributed.comm.retry.count': 2,  # Fewer retries for speed
+            'distributed.comm.timeouts.connect': '60s',
+            'distributed.comm.timeouts.tcp': '120s',
+            'distributed.comm.shard': '64MiB' if total_memory > 64 * 1024 ** 3 else '32MiB',
+            'distributed.comm.offload': '2GiB' if total_memory > 128 * 1024 ** 3 else '1GiB',
+
+            # Task scheduling
+            'distributed.scheduler.work-stealing': True,
+            'distributed.scheduler.work-stealing-interval': '5ms' if total_cores > 8 else '10ms',
+            'distributed.scheduler.bandwidth': 5e9,  # 5GB/s network bandwidth
+            'distributed.scheduler.default-task-durations': {
+                'rechunk-split': '1ms',
+                'rechunk-merge': '1ms',
+                'from-delayed': '1ms'
+            },
+
+            # Worker settings
+            'distributed.worker.profile.enabled': False,  # Disable profiling for speed
+            'distributed.worker.threads': min(4, max(2, total_cores // 4)),  # Dynamic thread count
+            'distributed.worker.memory.rebalance.measure': 'optimistic',
+            'distributed.worker.memory.rebalance.recipient-max': 0.8,
+            'distributed.worker.memory.rebalance.sender-min': 0.3,  # More aggressive rebalancing
+
+            # Client settings
+            'distributed.client.heartbeat': '10s',  # Less frequent heartbeats
+            'distributed.client.scheduler-info-interval': '5s',
+
+            # Compression
+            'distributed.comm.compression': 'lz4',  # Faster compression
+            'distributed.comm.zstd.level': 1,  # Faster compression level
+
+            # I/O optimization
+            'distributed.worker.use-file-locking': False,  # Disable if NFS not used
+            # 'distributed.worker.memory.spill-compression': 'lz4',  # Explicitly use lz4 for spilling
+        })
+
+    def _get_optimal_worker_config(self, n_jobs=None, threads_per_worker=None,
+                                   memory_limit=None, **kwargs):
+        """Calculate optimal worker configuration for conversion speed."""
+        import psutil
+        import math
+
+        # Get system information
+        total_cores = psutil.cpu_count(logical=False) or psutil.cpu_count() or 4
+        total_memory = psutil.virtual_memory().total
+
+        # Optimize for conversion speed
+        if threads_per_worker is None:
+            # For I/O-bound tasks, use more threads per worker
+            threads_per_worker = min(8, max(2, (total_cores // 2) or 1))
+
+        if n_jobs is None:
+            # Leave 2 cores for system and I/O
+            n_workers = max(1, min((total_cores - 2) // max(1, threads_per_worker), 32))
+        else:
+            n_workers = max(1, n_jobs)
+
+        # Memory allocation
+        if memory_limit is None:
+            # Reserve 10% of memory for system
+            reserved_memory = total_memory * 0.1
+            memory_per_worker = (total_memory - reserved_memory) / n_workers
+            memory_limit = f"{memory_per_worker / (1024 ** 3):.1f}GB"
+
+        # Adjust for conversion tasks
+        if isinstance(memory_limit, str) and 'GB' in memory_limit:
+            gb = float(memory_limit.replace('GB', ''))
+            # Ensure minimum memory per worker
+            memory_limit = f"{max(2.0, gb)}GB"  # At least 2GB per worker
+
+        return {
+            'n_workers': n_workers,
+            'threads_per_worker': threads_per_worker,
+            'memory_limit': memory_limit,
+            # 'processes': True  # Use processes for CPU-bound work
+        }
+
     def reset_config(self):
         """
         Resets the cluster, conversion and downscale parameters to the installation defaults.
@@ -603,6 +716,7 @@ class EuBIBridge:
             dask.config.set(config_dict)
             logger.info(f"Process running locally via multithreading.")
         else:
+            self._optimize_dask_config()
             if memory_limit == 'auto':
                 reserve_fraction = kwargs.get('reserve_memory_fraction', 0.1)
                 min_per_worker = kwargs.get('min_memory_per_worker', 1 * 1024 ** 3)
@@ -643,6 +757,123 @@ class EuBIBridge:
             if verbose:
                 logger.info(self.client.cluster)
         return self
+
+    # def _start_cluster(
+    #         self,
+    #         n_jobs: int = 4,
+    #         threads_per_worker: int = 1,
+    #         memory_limit: str = 'auto',
+    #         temp_dir: str = 'auto',
+    #         verbose: bool = False,
+    #         on_slurm: bool = False,
+    #         no_distributed: bool = False,
+    #         config_kwargs: dict = None,
+    #         **kwargs
+    # ):
+    #     """Start a Dask cluster with optimized configuration.
+    #
+    #     Args:
+    #         n_jobs: Number of worker processes
+    #         threads_per_worker: Number of threads per worker
+    #         memory_limit: Memory limit per worker ('auto' or string like '4GB')
+    #         temp_dir: Directory for temporary files
+    #         verbose: Enable verbose logging
+    #         on_slurm: Whether running on a SLURM cluster
+    #         no_distributed: Use simple threading backend instead of distributed
+    #         config_kwargs: Additional Dask configuration
+    #         **kwargs: Additional arguments including:
+    #             - reserve_memory_fraction: Fraction of memory to reserve (default: 0.1)
+    #             - min_memory_per_worker: Minimum memory per worker in bytes (default: 1GB)
+    #     """
+    #     # Initialize config with defaults
+    #     config_kwargs = config_kwargs or {}
+    #     scheduler_options = {
+    #         "allowed_failures": 100,
+    #         "idle_timeout": "1h",
+    #         "worker_ttl": "1d"
+    #     }
+    #
+    #     # Set up temp directory
+    #     self._set_dask_temp_dir(temp_dir)
+    #
+    #     # Configure Dask
+    #     if no_distributed:
+    #         # Simple threading backend
+    #         config = {
+    #             'scheduler': 'threads',
+    #             'pool': ThreadPool(n_jobs)
+    #         }
+    #         config.update(config_kwargs)
+    #         dask.config.set(config)
+    #         logger.info("Process running locally via multithreading")
+    #         return self
+    #
+    #     # Distributed cluster setup
+    #     if memory_limit == 'auto':
+    #         memory_limit = self._calculate_memory_limit(
+    #             n_jobs,
+    #             kwargs.get('reserve_memory_fraction', 0.1),
+    #             kwargs.get('min_memory_per_worker', 1 * 1024 ** 3)
+    #         )
+    #         logger.info(f"Allocated {memory_limit} memory per worker")
+    #
+    #     try:
+    #         if on_slurm:
+    #             logger.info("Initializing SLURM cluster")
+    #             cluster = self._create_slurm_cluster(
+    #                 n_jobs, threads_per_worker, memory_limit, scheduler_options
+    #             )
+    #         else:
+    #             logger.info("Initializing local cluster")
+    #             cluster = self._create_local_cluster(
+    #                 n_jobs, threads_per_worker, memory_limit, scheduler_options
+    #             )
+    #
+    #         cluster.scale(n_jobs)
+    #         self.client = Client(cluster)
+    #
+    #         if verbose:
+    #             logger.info("Cluster info: %s", self.client.cluster)
+    #
+    #         return self
+    #
+    #     except Exception as e:
+    #         logger.error("Failed to start cluster: %s", str(e))
+    #         if hasattr(self, 'client'):
+    #             self.client.close()
+    #         raise
+    #
+    # def _calculate_memory_limit(self, n_jobs, reserve_fraction, min_per_worker):
+    #     """Calculate memory limit per worker."""
+    #     total_mem = psutil.virtual_memory().total
+    #     reserved_mem = total_mem * reserve_fraction
+    #     available_mem = max(0, total_mem - reserved_mem)
+    #     mem_per_worker = max(available_mem / n_jobs, min_per_worker)
+    #     return f"{mem_per_worker / (1024 ** 3):.1f}GB"
+    #
+    # def _create_slurm_cluster(self, n_jobs, threads_per_worker, memory_limit, scheduler_options):
+    #     """Create a SLURM cluster."""
+    #     return SLURMCluster(
+    #         cores=threads_per_worker,
+    #         processes=1,
+    #         nanny=False,
+    #         scheduler_options=scheduler_options,
+    #         n_workers=n_jobs,
+    #         memory=memory_limit,
+    #         local_directory=str(self._dask_temp_dir.name),
+    #     )
+    #
+    # def _create_local_cluster(self, n_jobs, threads_per_worker, memory_limit, scheduler_options):
+    #     """Create a local cluster."""
+    #     return LocalCluster(
+    #         n_workers=n_jobs,
+    #         threads_per_worker=threads_per_worker,
+    #         nanny=False,
+    #         scheduler_kwargs=scheduler_options,
+    #         memory_limit=memory_limit,
+    #         local_directory=str(self._dask_temp_dir.name),
+    #     )
+
 
     def to_zarr(self,
                 input_path: Union[Path, str],
@@ -712,6 +943,8 @@ class EuBIBridge:
                                self.conversion_params['x_chunk']]
                               )
 
+        # self._optimize_dask_config()
+
         self._start_cluster(**self.cluster_params)
 
 
@@ -738,7 +971,7 @@ class EuBIBridge:
             y_tag = y_tag,
             x_tag = x_tag,
             axes_of_concatenation = concatenation_axes,
-            metadata_reader = self.conversion_params['metadata_reader'],
+            # metadata_reader = self.conversion_params['metadata_reader'],
             **kwargs
             )
         logger.info(f"Metadata was extracted")
@@ -787,6 +1020,8 @@ class EuBIBridge:
                       zarr_format = self.conversion_params['zarr_format'],
                       rechunk_method = self.conversion_params['rechunk_method'],
                       use_tensorstore = self.conversion_params['use_tensorstore'],
+                      compressor = self.conversion_params['compressor'],
+                      compressor_params = self.conversion_params['compressor_params'],
                       verbose = verbose
                       ) # TODO: add to_cupy parameter here.
 

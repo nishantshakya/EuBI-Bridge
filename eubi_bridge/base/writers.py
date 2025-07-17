@@ -211,7 +211,7 @@ def _create_zarr_array(
     chunks = tuple(np.minimum(shape, chunks).tolist())
     if shards is not None:
         shards = tuple(np.array(shards).flatten().tolist())
-        assert np.allclose(np.mod(shards, chunks), 0)
+        assert np.allclose(np.mod(shards, chunks), 0), f"Shards {shards} must be a multiple of chunks {chunks}"
     store = LocalStore(store_path)
 
     if zarr_format not in (ZARR_V2, ZARR_V3):
@@ -275,7 +275,7 @@ def write_with_zarrpy(arr: da.Array,
     """
     store_path = str(store_path)
     dtype = dtype or arr.dtype
-    compressor_params = compressor_params or {'cname': 'zstd', 'clevel': 5}
+    compressor_params = compressor_params or {}
 
     if chunks is None:
         chunks = arr.chunksize
@@ -348,7 +348,7 @@ def write_with_tensorstore(
             "Try 'conda install -c conda-forge tensorstore'"
         )
 
-    compressor_params = compressor_params or {'cname': 'zstd', 'clevel': 5}
+    compressor_params = compressor_params or {}
     # shard_to_chunk_ratio = kwargs.get('shard_to_chunk_ratio', 3)
     dtype = dtype or arr.dtype
     fill_value = kwargs.get('fill_value', get_default_fill_value(dtype))
@@ -596,10 +596,249 @@ def store_arrays(arrays: Dict[str, Dict[str, da.Array]], # flatarrays
 
     if compute:
         try:
-            dask.compute(list(results.values()), retries = 6)
+            # dask.compute(list(results.values()), retries = 6)
+            dask.compute(
+                list(results.values()),
+                retries=6,
+                # Optimize the graph to reduce overhead
+                # optimize_graph=True,
+                # Allow work stealing for better load balancing
+                # scheduler_kwargs={'work_stealing_enabled': True}
+            )
         except Exception as e:
             # print(e)
             pass
     else:
         return results
     return results
+
+
+# def store_arrays(arrays: Dict[str, Dict[str, da.Array]],
+#                  output_path: Union[Path, str],
+#                  axes: list,
+#                  scales: Dict[str, Dict[str, Tuple[float, ...]]],
+#                  units: list,
+#                  auto_chunk: bool = True,
+#                  output_chunks: Dict[str, Tuple[int, ...]] = None,
+#                  output_shard_coefficients: Tuple[int, ...] = None,
+#                  compute: bool = False,
+#                  overwrite: bool = False,
+#                  channel_meta: dict = None,
+#                  **kwargs) -> Dict[str, da.Array]:
+#     """
+#     Store multiple arrays in parallel with optimized Dask execution.
+#
+#     Parameters
+#     ----------
+#     arrays : Dict[str, Dict[str, da.Array]]
+#         Dictionary of arrays to store, keyed by their output paths
+#     output_path : Union[Path, str]
+#         Base output path for the arrays
+#     axes : list
+#         List of axis specifications for each array
+#     scales : Dict[str, Dict[str, Tuple[float, ...]]]
+#         Scale information for each array
+#     units : list
+#         Unit information for each array
+#     auto_chunk : bool, optional
+#         Whether to automatically determine chunk sizes, by default True
+#     output_chunks : Dict[str, Tuple[int, ...]], optional
+#         Manual chunk sizes for each array, by default None
+#     output_shard_coefficients : Tuple[int, ...], optional
+#         Shard coefficients for Zarr v3, by default None
+#     compute : bool, optional
+#         Whether to compute results immediately, by default False
+#     overwrite : bool, optional
+#         Whether to overwrite existing arrays, by default False
+#     channel_meta : dict, optional
+#         Channel metadata, by default None
+#     **kwargs
+#         Additional arguments including:
+#         - rechunk_method: 'tasks' or 'p2p'
+#         - use_tensorstore: bool
+#         - verbose: bool
+#         - zarr_format: int (2 or 3)
+#         - output_shards: dict
+#         - target_chunk_mb: int
+#         - max_parallel_writes: int (new)
+#
+#     Returns
+#     -------
+#     Dict[str, da.Array]
+#         Dictionary of delayed write operations
+#     """
+#     # Extract configuration
+#     rechunk_method = kwargs.get('rechunk_method', 'tasks')
+#     if rechunk_method == 'rechunker':
+#         raise ValueError("This version of EuBI-Bridge does not support rechunker. Choose either 'tasks' or 'p2p'.")
+#     assert rechunk_method in ('tasks', 'p2p')
+#
+#     use_tensorstore = kwargs.get('use_tensorstore', False)
+#     verbose = kwargs.get('verbose', False)
+#     zarr_format = kwargs.get('zarr_format', 2)
+#     output_shards = kwargs.get('output_shards', None)
+#     target_chunk_mb = kwargs.get('target_chunk_mb', 1)
+#     max_parallel_writes = kwargs.get('max_parallel_writes', 4)  # Default to 4 parallel writes
+#
+#     writer_func = write_with_tensorstore if use_tensorstore else write_with_zarrpy
+#     results = {}
+#     delayed_writes = []
+#
+#     # Create the base group
+#     zarr.group(output_path, overwrite=overwrite, zarr_version=zarr_format)
+#
+#     def process_array(key, arr):
+#         """Process a single array and return a delayed write operation."""
+#         nonlocal results
+#
+#         # Determine dtype and potentially convert
+#         # dtype = kwargs.get('dtype', arr.dtype)
+#         # if dtype is not None and np.dtype(dtype) != arr.dtype:
+#         #     arr = arr.astype(dtype)
+#
+#         dtype = kwargs.get('dtype', arr.dtype)
+#         if dtype is None:
+#             dtype = arr.dtype
+#         else:
+#             if isinstance(dtype, str):
+#                 dtype = np.dtype(dtype)
+#             arr = arr.astype(dtype)
+#
+#         # Get metadata
+#         flataxes = axes[key]
+#         flatscale = scales[key]
+#         flatunit = units[key]
+#         flatchunks = output_chunks[key] if output_chunks else None
+#
+#         # Auto-chunk if requested
+#         if auto_chunk:
+#             flatchunks = autocompute_chunk_shape(
+#                 arr.shape,
+#                 axes=flataxes,
+#                 target_chunk_mb=target_chunk_mb,
+#                 dtype=dtype
+#             )
+#             if verbose:
+#                 logger.info(f"Auto-chunking {key} to {flatchunks}")
+#
+#         flatchannels = channel_meta[key] if channel_meta is not None else None
+#
+#         # Determine chunks and shards
+#         chunks = np.minimum(flatchunks or arr.chunksize, arr.shape).tolist()
+#         chunks = tuple(int(item) for item in chunks)
+#
+#         if zarr_format == 3:
+#             if output_shards is not None:
+#                 shards = output_shards[key]
+#             elif output_shard_coefficients is not None:
+#                 flatshardcoefs = output_shard_coefficients[key]
+#                 shards = np.multiply(chunks, flatshardcoefs)
+#             else:
+#                 shards = chunks
+#             shards = tuple(int(item) for item in shards)
+#         else:
+#             shards = None
+#
+#         # Handle path and group creation
+#         dirpath = os.path.dirname(key)
+#         arrpath = os.path.basename(key)
+#
+#         # Create group and metadata (this needs to happen before parallel writes)
+#         with dask.config.set(scheduler='synchronous'):  # Ensure metadata is written serially
+#             if is_zarr_group(dirpath):
+#                 gr = zarr.open_group(dirpath, mode='a')
+#             else:
+#                 gr = zarr.group(dirpath, overwrite=overwrite, zarr_version=zarr_format)
+#
+#             version = '0.5' if zarr_format == 3 else '0.4'
+#             meta = _get_or_create_multimeta(
+#                 gr,
+#                 axis_order=flataxes,
+#                 unit_list=flatunit,
+#                 version=version
+#             )
+#
+#             meta.add_dataset(path=arrpath, scale=flatscale, overwrite=True)
+#             meta.retag(os.path.basename(dirpath))
+#
+#             # Handle channel metadata
+#             if flatchannels == 'auto':
+#                 if 'c' in flataxes:
+#                     idx = flataxes.index('c')
+#                     size = arr.shape[idx]
+#                 else:
+#                     size = 1
+#                 meta.autocompute_omerometa(size, arr.dtype)
+#             elif flatchannels is None:
+#                 pass
+#             else:
+#                 for channel in flatchannels:
+#                     meta.add_channel(color = channel['color'],
+#                                      label = channel['label'],
+#                                      dtype = dtype.str
+#                                      )
+#             meta.save_changes()
+#
+#         if verbose:
+#             logger.info(f"Queueing write for {key} with writer: {writer_func.__name__}")
+#
+#         # Create a delayed write operation
+#         return writer_func(
+#             arr=arr,
+#             store_path=key,
+#             chunks=chunks,
+#             shards=shards,
+#             dimension_names=flataxes,
+#             overwrite=overwrite,
+#             **{k: v for k, v in kwargs.items() if k not in ['max_parallel_writes']}
+#         )
+#
+#     # Process arrays in parallel with controlled concurrency
+#     if max_parallel_writes > 1:
+#         # Create a thread pool for parallel processing
+#         from concurrent.futures import ThreadPoolExecutor, as_completed
+#
+#         with ThreadPoolExecutor(max_workers=max_parallel_writes) as executor:
+#             # Submit all tasks
+#             future_to_key = {
+#                 executor.submit(process_array, key, arr): key
+#                 for key, arr in arrays.items()
+#             }
+#
+#             # Process results as they complete
+#             for future in as_completed(future_to_key):
+#                 key = future_to_key[future]
+#                 try:
+#                     results[key] = future.result()
+#                 except Exception as e:
+#                     logger.error(f"Error processing {key}: {str(e)}")
+#                     raise
+#     else:
+#         # Process arrays sequentially (for debugging or when max_parallel_writes <= 1)
+#         for key, arr in arrays.items():
+#             results[key] = process_array(key, arr)
+#
+#     # Compute results if requested
+#     if compute and results:
+#         try:
+#             if verbose:
+#                 logger.info(f"Computing {len(results)} array writes...")
+#
+#             # Use dask.compute with retries
+#             dask.compute(
+#                 list(results.values()),
+#                 retries=6,
+#                 # Optimize the graph to reduce overhead
+#                 optimize_graph=True,
+#                 # Allow work stealing for better load balancing
+#                 scheduler_kwargs={'work_stealing_enabled': True}
+#             )
+#
+#             if verbose:
+#                 logger.info("All array writes completed successfully")
+#
+#         except Exception as e:
+#             logger.error(f"Error during array computation: {str(e)}")
+#             raise
+#
+#     return results

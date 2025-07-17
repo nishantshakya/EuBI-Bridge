@@ -319,10 +319,277 @@ def sensitive_glob(pattern: str,
     return results
 
 
+# def take_filepaths(input_path: str,
+#                    includes: bool = None,
+#                    excludes: bool = None
+#                    ) -> list:
+#     """
+#     Get file paths from a directory, glob pattern, or file containing paths.
+#
+#     Supports:
+#     - Directory paths
+#     - Glob patterns
+#     - CSV/TSV files (with or without headers)
+#     - Simple text files with one path per line
+#
+#     Args:
+#         input_path: Path to a directory, glob pattern, CSV/TSV, or text file.
+#                    For CSV/TSV, looks for a 'filepath' column or uses the first column.
+#                    For text files, reads one path per line.
+#         includes: Optional string that must be present in the path for it to be included.
+#         excludes: Optional string that will exclude paths that contain it.
+#
+#     Returns:
+#         List of absolute file paths (never includes the input file itself).
+#
+#     Raises:
+#         ValueError: If no valid paths are found.
+#         FileNotFoundError: If the input file doesn't exist.
+#     """
+#     import os
+#     import csv
+#     from pathlib import Path
+#
+#     original_input_path = input_path
+#     paths = []
+#
+#     # Convert to absolute path for comparison later
+#     input_path = str(Path(input_path).resolve())
+#
+#     # Check if input is a file
+#     if os.path.isfile(input_path):
+#         try:
+#             # Get the directory containing the input file for relative path resolution
+#             input_dir = os.path.dirname(input_path)
+#
+#             # Read the entire file first
+#             with open(input_path, 'r', encoding='utf-8') as f:
+#                 content = f.read().strip()
+#
+#             if not content:
+#                 raise ValueError(f"File {input_path} is empty")
+#
+#             # Split into lines and clean up
+#             lines = [line.strip() for line in content.splitlines() if line.strip()]
+#
+#             # If it's a simple text file with one path per line
+#             if not any(',' in line or '\t' in line for line in lines):
+#                 for line in lines:
+#                     # Handle potential trailing commas
+#                     line = line.rstrip(',').strip()
+#                     if not line:
+#                         continue
+#
+#                     path = Path(line)
+#                     if not path.is_absolute():
+#                         path = Path(input_dir) / path
+#                     path_str = str(path.resolve())
+#                     if path_str != input_path:  # Skip the input file itself
+#                         paths.append(path_str)
+#             else:
+#                 # If it looks like CSV/TSV, try to parse it
+#                 try:
+#                     with open(input_path, 'r', newline='', encoding='utf-8-sig') as f:
+#                         # Read the first line to check if it's a header
+#                         first_line = f.readline().strip()
+#                         f.seek(0)
+#
+#                         # Check if first line contains 'filepath' (case-insensitive)
+#                         has_header = 'filepath' in first_line.lower()
+#
+#                         # Try to detect dialect
+#                         try:
+#                             f.seek(0)
+#                             sample = f.read(1024)
+#                             dialect = csv.Sniffer().sniff(sample)
+#                             f.seek(0)
+#
+#                             if has_header:
+#                                 # Has header with filepath column
+#                                 reader = csv.DictReader(f, dialect=dialect)
+#                                 for row in reader:
+#                                     path_str = None
+#                                     # Try to get path from 'filepath' column (case-insensitive)
+#                                     for col in row:
+#                                         if col.lower() == 'filepath' and row[col].strip():
+#                                             path_str = row[col].strip()
+#                                             break
+#
+#                                     # If no 'filepath' column, use first non-empty column
+#                                     if not path_str:
+#                                         for col in row:
+#                                             if row[col].strip():
+#                                                 path_str = row[col].strip()
+#                                                 break
+#
+#                                     if path_str:
+#                                         path = Path(path_str)
+#                                         if not path.is_absolute():
+#                                             path = Path(input_dir) / path
+#                                         path_str = str(path.resolve())
+#                                         if path_str != input_path:  # Skip the input file itself
+#                                             paths.append(path_str)
+#                             else:
+#                                 # No header, use first column
+#                                 reader = csv.reader(f, dialect=dialect)
+#                                 for row in reader:
+#                                     if row and row[0].strip():
+#                                         path_str = row[0].strip().rstrip(',')  # Handle trailing commas
+#                                         if path_str:
+#                                             path = Path(path_str)
+#                                             if not path.is_absolute():
+#                                                 path = Path(input_dir) / path
+#                                             path_str = str(path.resolve())
+#                                             if path_str != input_path:  # Skip the input file itself
+#                                                 paths.append(path_str)
+#
+#                         except Exception as e:
+#                             # If CSV parsing fails, fall back to simple line reading
+#                             f.seek(0)
+#                             for line in f:
+#                                 line = line.strip().rstrip(',')  # Handle trailing commas
+#                                 if line and not line.startswith('#'):
+#                                     path = Path(line)
+#                                     if not path.is_absolute():
+#                                         path = Path(input_dir) / path
+#                                     path_str = str(path.resolve())
+#                                     if path_str != input_path:  # Skip the input file itself
+#                                         paths.append(path_str)
+#
+#                 except Exception as e:
+#                     # Fall back to simple line reading
+#                     for line in lines:
+#                         line = line.strip().rstrip(',')  # Handle trailing commas
+#                         if line and not line.startswith('#'):
+#                             path = Path(line)
+#                             if not path.is_absolute():
+#                                 path = Path(input_dir) / path
+#                             path_str = str(path.resolve())
+#                             if path_str != input_path:  # Skip the input file itself
+#                                 paths.append(path_str)
+#
+#         except UnicodeDecodeError:
+#             # Try with different encoding if UTF-8 fails
+#             try:
+#                 with open(input_path, 'r', encoding='latin-1') as f:
+#                     for line in f:
+#                         line = line.strip().rstrip(',')  # Handle trailing commas
+#                         if line and not line.startswith('#'):
+#                             path = Path(line)
+#                             if not path.is_absolute():
+#                                 path = Path(input_dir) / path
+#                             path_str = str(path.resolve())
+#                             if path_str != input_path:  # Skip the input file itself
+#                                 paths.append(path_str)
+#             except Exception as e:
+#                 raise ValueError(f"Error reading file with fallback encoding: {str(e)}")
+#         except Exception as e:
+#             raise ValueError(f"Error reading file {input_path}: {str(e)}")
+#
+#     else:
+#         # Handle directory/glob pattern
+#         if input_path.endswith('.zarr'):
+#             dirname = os.path.dirname(input_path)
+#             basename = os.path.basename(input_path)
+#             if not dirname:
+#                 dirname = '.'
+#             input_path = f"{dirname}/*{basename}"
+#
+#         if not '*' in input_path and not input_path.endswith('.zarr'):
+#             input_path = os.path.join(input_path, '**')
+#
+#         input_path_ = input_path if '*' in input_path else os.path.join(input_path, '**')
+#         paths = sensitive_glob(input_path_, recursive=False, sensitive_to='.zarr')
+#
+#     # Apply includes/excludes filters and ensure paths exist
+#     filtered_paths = []
+#     for path in paths:
+#         try:
+#             path_str = str(path)
+#             path_obj = Path(path_str)
+#
+#             # Skip if it's the input file itself (just in case)
+#             if path_str == input_path:
+#                 continue
+#
+#             # Check if path exists and is a file
+#             if not path_obj.exists():
+#                 continue
+#
+#             # Apply filters
+#             if ((includes is None or includes in path_str) and
+#                     (excludes is None or excludes not in path_str) and
+#                     not path_str.endswith('zarr.json')):
+#                 filtered_paths.append(path_str)
+#         except (TypeError, AttributeError, OSError):
+#             continue
+#
+#     if not filtered_paths:
+#         raise ValueError(f"No valid paths found for {original_input_path}")
+#
+#     return sorted(filtered_paths)
+
+
+
+def take_filepaths_from_csv(input_path: str,
+                            includes: bool = None,
+                            excludes: bool = None
+                            ) -> list:
+    """Take filepaths from a CSV file.
+
+    Supports two formats:
+    1. With header row containing 'filepath' column:
+       filepath,other_column
+       /path/to/file.tif,value
+
+    2. Without header (takes first column):
+       /path/to/file.tif
+       /another/path.tif
+    """
+    import csv
+
+    with open(input_path, 'r') as f:
+        # Try to read with headers first
+        start_pos = f.tell()
+        try:
+            sniffer = csv.Sniffer()
+            has_header = sniffer.has_header(f.read(1024))
+            f.seek(start_pos)
+
+            if has_header:
+                reader = csv.DictReader(f)
+                if 'filepath' not in reader.fieldnames:
+                    raise ValueError(f"CSV has headers but no 'filepath' column. Found columns: {reader.fieldnames}")
+                paths = [row['filepath'] for row in reader]
+            else:
+                # No headers, read first column
+                reader = csv.reader(f)
+                paths = [row[0] for row in reader if row]  # Skip empty lines
+
+        except csv.Error as e:
+            # Fallback to reading as simple text file if CSV parsing fails
+            f.seek(start_pos)
+            paths = [line.strip() for line in f if line.strip()]  # Read non-empty lines
+
+    paths = list(filter(lambda path: (includes in path if includes is not None else True)
+                                     and
+                                     (excludes not in path if excludes is not None else True),
+                        paths
+                        )
+                 )
+    paths = list(filter(lambda path: not path.endswith('zarr.json'), paths))
+    if len(paths) == 0:
+        raise ValueError(f"No valid paths found in {input_path}")
+    return sorted(paths)
+
+
 def take_filepaths(input_path: str,
                    includes: bool = None,
                    excludes: bool = None
                    ):
+
+    if os.path.isfile(input_path) and input_path.endswith('.csv'):
+        return take_filepaths_from_csv(input_path, includes, excludes)
 
     original_input_path = input_path
 
@@ -353,188 +620,7 @@ def take_filepaths(input_path: str,
         raise ValueError(f"No valid paths found for {original_input_path}")
     return sorted(paths)
 
-
-def take_filepaths_and_parameters_from_csv(input_path: str,
-                                           includes: bool = None,
-                                           excludes: bool = None
-                                           ) -> list:
-    """Take filepaths and conversion parameters from a CSV file.
-
-    Supports two formats:
-    1. With header row and values directly in columns:
-       filepath,zarr_format,time_chunk,channel_chunk,z_chunk
-       /path/to/file.tif,2,1,1,64
-
-    2. Without header (key=value format):
-       /path/to/file.tif,zarr_format=2,time_chunk=1,channel_chunk=1,z_chunk=64
-    """
-    import csv
-    from pathlib import Path
-    import json
-
-    results = []
-
-    try:
-        with open(input_path, 'r') as csvfile:
-            # Read the first line to determine the format
-            first_line = csvfile.readline().strip()
-            csvfile.seek(0)  # Reset file pointer
-
-            # Check if first line is a header (contains 'filepath' and no '=')
-            has_header = 'filepath' in first_line and '=' not in first_line
-
-            reader = csv.reader(csvfile)
-
-            if has_header:
-                # Read header and remove it from the reader
-                header = next(reader)
-                header = [h.strip() for h in header]
-
-                for row in reader:
-                    if not row:  # Skip empty rows
-                        continue
-
-                    filepath = row[0].strip()
-                    if not filepath:  # Skip if filepath is empty
-                        continue
-
-                    # Initialize parameters with defaults
-                    params = {
-                        "zarr_format": 2,
-                        "time_chunk": 1,
-                        "channel_chunk": 1,
-                        "z_chunk": 96,
-                        "y_chunk": 96,
-                        "x_chunk": 96,
-                        "time_shard_coef": 1,
-                        "channel_shard_coef": 1,
-                        "z_shard_coef": 3,
-                        "y_shard_coef": 3,
-                        "x_shard_coef": 3,
-                        "time_range": None,
-                        "channel_range": None,
-                        "z_range": None,
-                        "y_range": None,
-                        "x_range": None,
-                        "dimension_order": "tczyx",
-                        "compressor": "blosc",
-                        "compressor_params": {},
-                        "overwrite": False,
-                        "use_tensorstore": False,
-                        "use_gpu": False,
-                        "rechunk_method": "tasks",
-                        "trim_memory": False,
-                        "metadata_reader": "bfio",
-                        "save_omexml": True,
-                        "squeeze": False
-                    }
-
-                    # Map header to parameters
-                    for i, value in enumerate(row[1:], 1):  # Skip filepath column
-                        if i < len(header):
-                            key = header[i].strip()
-                            if key in params:
-                                # Convert value to appropriate type
-                                value = value.strip()
-                                if value.lower() == 'true':
-                                    params[key] = True
-                                elif value.lower() == 'false':
-                                    params[key] = False
-                                elif value.lower() == 'none' or value == '':
-                                    params[key] = None
-                                elif value.isdigit():
-                                    params[key] = int(value)
-                                else:
-                                    try:
-                                        params[key] = float(value)
-                                    except ValueError:
-                                        params[key] = value  # Keep as string
-
-                    results.append({
-                        'filepath': Path(filepath).resolve(),
-                        'parameters': params
-                    })
-            else:
-                # Original key=value format
-                for row in reader:
-                    if not row:  # Skip empty rows
-                        continue
-
-                    filepath = row[0].strip()
-                    if not filepath:  # Skip if filepath is empty
-                        continue
-
-                    # Initialize parameters with defaults
-                    params = {
-                        "zarr_format": 2,
-                        "time_chunk": 1,
-                        "channel_chunk": 1,
-                        "z_chunk": 96,
-                        "y_chunk": 96,
-                        "x_chunk": 96,
-                        "time_shard_coef": 1,
-                        "channel_shard_coef": 1,
-                        "z_shard_coef": 3,
-                        "y_shard_coef": 3,
-                        "x_shard_coef": 3,
-                        "time_range": None,
-                        "channel_range": None,
-                        "z_range": None,
-                        "y_range": None,
-                        "x_range": None,
-                        "dimension_order": "tczyx",
-                        "compressor": "blosc",
-                        "compressor_params": {},
-                        "overwrite": False,
-                        "use_tensorstore": False,
-                        "use_gpu": False,
-                        "rechunk_method": "tasks",
-                        "trim_memory": False,
-                        "metadata_reader": "bfio",
-                        "save_omexml": True,
-                        "squeeze": False
-                    }
-
-                    # Process parameters in key=value format
-                    for param_str in row[1:]:
-                        param_str = param_str.strip()
-                        if not param_str or '=' not in param_str:
-                            continue
-
-                        key, value = param_str.split('=', 1)
-                        key = key.strip()
-                        value = value.strip()
-
-                        if key in params:
-                            # Convert value to appropriate type
-                            if value.lower() == 'true':
-                                params[key] = True
-                            elif value.lower() == 'false':
-                                params[key] = False
-                            elif value.lower() == 'none' or value == '':
-                                params[key] = None
-                            elif value.isdigit():
-                                params[key] = int(value)
-                            else:
-                                try:
-                                    params[key] = float(value)
-                                except ValueError:
-                                    params[key] = value  # Keep as string
-
-                    results.append({
-                        'filepath': Path(filepath).resolve(),
-                        'parameters': params
-                    })
-
-    except FileNotFoundError:
-        raise FileNotFoundError(f"CSV file not found: {input_path}")
-    except Exception as e:
-        raise Exception(f"Error reading CSV file: {str(e)}")
-
-    return results
-
-
-# res = take_filepaths_and_parameters_from_csv(f"/home/oezdemir/PycharmProjects/eubizarr1/sample.csv")
+# res = take_filepaths(f"/home/oezdemir/PycharmProjects/TIM2025/data/targets.csv")
 
 def autocompute_chunk_shape(
         array_shape: Tuple[int, ...],

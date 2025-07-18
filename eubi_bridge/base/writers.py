@@ -211,7 +211,7 @@ def _create_zarr_array(
     chunks = tuple(np.minimum(shape, chunks).tolist())
     if shards is not None:
         shards = tuple(np.array(shards).flatten().tolist())
-        assert np.allclose(np.mod(shards, chunks), 0)
+        assert np.allclose(np.mod(shards, chunks), 0), f"Shards {shards} must be a multiple of chunks {chunks}"
     store = LocalStore(store_path)
 
     if zarr_format not in (ZARR_V2, ZARR_V3):
@@ -275,7 +275,7 @@ def write_with_zarrpy(arr: da.Array,
     """
     store_path = str(store_path)
     dtype = dtype or arr.dtype
-    compressor_params = compressor_params or {'cname': 'zstd', 'clevel': 5}
+    compressor_params = compressor_params or {}
 
     if chunks is None:
         chunks = arr.chunksize
@@ -348,7 +348,7 @@ def write_with_tensorstore(
             "Try 'conda install -c conda-forge tensorstore'"
         )
 
-    compressor_params = compressor_params or {'cname': 'zstd', 'clevel': 5}
+    compressor_params = compressor_params or {}
     # shard_to_chunk_ratio = kwargs.get('shard_to_chunk_ratio', 3)
     dtype = dtype or arr.dtype
     fill_value = kwargs.get('fill_value', get_default_fill_value(dtype))
@@ -596,10 +596,15 @@ def store_arrays(arrays: Dict[str, Dict[str, da.Array]], # flatarrays
 
     if compute:
         try:
-            dask.compute(list(results.values()), retries = 6)
+            # dask.compute(list(results.values()), retries = 6)
+            dask.compute(
+                list(results.values()),
+                retries=6,
+            )
         except Exception as e:
             # print(e)
             pass
     else:
         return results
     return results
+

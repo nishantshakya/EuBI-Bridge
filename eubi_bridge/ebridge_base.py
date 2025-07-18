@@ -24,7 +24,6 @@ from eubi_bridge.utils.convenience import (
     take_filepaths
 )
 
-
 # Configure logging
 logging.getLogger('distributed.diskutils').setLevel(logging.CRITICAL)
 warnings.filterwarnings('ignore')
@@ -134,7 +133,10 @@ class BridgeBase:
         zarr_format = self._zarr_format
         verbose = self._verbose
 
-
+        _input_is_csv = False
+        if input_path.endswith('.csv'):
+            _input_is_csv = True
+            self.filepaths = take_filepaths(input_path, includes, excludes)
 
         if os.path.isfile(input_path) or input_path.endswith('.zarr'):
             dirname = os.path.dirname(input_path)
@@ -142,7 +144,8 @@ class BridgeBase:
             input_path = f"{dirname}/*{basename}"
             self._input_path = input_path
 
-        self.filepaths = take_filepaths(input_path, includes, excludes)
+        if not _input_is_csv:
+            self.filepaths = take_filepaths(input_path, includes, excludes)
 
         if series is None or series==0: # TODO: parallelize with cluster setting. Keep serial for no-cluster
             try:
@@ -500,7 +503,7 @@ class BridgeBase:
         )
 
         self.flatarrays = path_mappings['arrays']
-
+        
         # Save OME-XML metadata if requested
         if storage_options.get('save_omexml', False):
             manager_paths = {
@@ -516,7 +519,7 @@ class BridgeBase:
 
         return storage_results
 
-def downscale( # TODO: add a min_size parameter here.
+def downscale(
         gr_paths,
         time_scale_factor,
         channel_scale_factor,
@@ -525,7 +528,7 @@ def downscale( # TODO: add a min_size parameter here.
         x_scale_factor,
         n_layers,
         downscale_method='simple',
-        **kwargs
+        **kwargs # a min_dimension_size parameter added
         ):
 
     scale_factor_dict = {
